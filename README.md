@@ -24,6 +24,7 @@
 
 El proyecto sigue una arquitectura desacoplada en micro-módulos:
 
+```text
 capri-assistant/
 ├── src/
 │   ├── backend/          # Servidor REST / WebSockets con FastAPI
@@ -33,6 +34,7 @@ capri-assistant/
 │   └── frontend/         # Interfaz nativa de escritorio y UI Web Cyberpunk
 ├── tests/                # Baterías de pruebas unitarias e integración
 └── docs/                 # Documentación técnica de arquitectura
+```
 
 * **Backend Core:** FastAPI + Pydantic para una validación estricta de tipos y baja latencia.
 * **Seguridad:** Aislamiento de credenciales locales (`.env` bajo `.gitignore`), integración nativa mediante SSH y ejecución aislada en entorno virtual (`venv`).

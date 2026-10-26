@@ -2,14 +2,14 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
 class SystemStatusResponse(BaseModel):
-    status: str = Field(..., example="online")
-    system: str = Field(..., example="C.A.P.R.I. Core Framework")
-    version: str = Field(..., example="0.1.0")
-    disk_available_gb: Optional[float] = Field(None, example=16.0)
+    status: str = Field(..., examples=["online"])
+    system: str = Field(..., examples=["C.A.P.R.I. Core Framework"])
+    version: str = Field(..., examples=["0.1.0"])
+    disk_available_gb: Optional[float] = Field(None, examples=[16.0])
 
 class AssistantMessageRequest(BaseModel):
-    session_id: str = Field(default="default_session", example="session_123")
-    message: str = Field(..., min_length=1, example="Hola Capri, ¿cuál es tu estado?")
+    session_id: str = Field(default="default_session", examples=["session_123"])
+    message: str = Field(..., min_length=1, examples=["Hola Capri, ¿cuál es tu estado?"])
     context: Optional[dict] = Field(default_factory=dict)
 
 class AssistantMessageResponse(BaseModel):
@@ -19,7 +19,7 @@ class AssistantMessageResponse(BaseModel):
     status: str = "success"
 
 class SkillExecuteRequest(BaseModel):
-    skill_name: str = Field(..., example="system_monitor")
+    skill_name: str = Field(..., examples=["system_monitor"])
     params: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class SkillExecuteResponse(BaseModel):

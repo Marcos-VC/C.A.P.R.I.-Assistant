@@ -10,10 +10,11 @@ from src.backend.core.schemas import (
 )
 from src.backend.memory.repository import save_message, get_recent_history
 from src.backend.skills.system_skills import SystemMonitorSkill
+from src.backend.core.llm import generate_llm_response
 
 app = FastAPI(
     title="C.A.P.R.I. Assistant API",
-    version="0.2.0",
+    version="0.3.0",
     description="Cybernetic Autonomously Programmed Response Interface - Backend API"
 )
 
@@ -33,11 +34,11 @@ def health_check():
     return {"status": "ok", "service": "backend"}
 
 @app.post("/api/v1/chat", response_model=AssistantMessageResponse)
-def process_message(payload: AssistantMessageRequest):
+async def process_message(payload: AssistantMessageRequest):
     save_message(session_id=payload.session_id, role="user", content=payload.message)
-    history = get_recent_history(session_id=payload.session_id, limit=10)
+    history = get_recent_history(session_id=payload.session_id, limit=8)
     
-    reply = f"C.A.P.R.I. [Sesion {payload.session_id}]: Recibido -> '{payload.message}'. Memoria activa: {len(history)} mensajes."
+    reply = await generate_llm_response(history)
     save_message(session_id=payload.session_id, role="assistant", content=reply)
     
     return AssistantMessageResponse(

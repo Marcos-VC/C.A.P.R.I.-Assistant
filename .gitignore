@@ -13,3 +13,4 @@ node_modules/
 dist/
 src-tauri/target/
 src/backend/memory/capri_memory.db
+.env
