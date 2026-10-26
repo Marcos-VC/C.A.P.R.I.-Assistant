@@ -28,7 +28,7 @@ capri-assistant/
 ├── src/
 │   ├── backend/          # Servidor REST / WebSockets con FastAPI
 │   │   ├── core/         # Configuración, esquemas Pydantic y lógica base
-│   │   ├── memory/       # Gestión de memoria local a corto/largo plazo
+│   │   ├── memory/       # Persistencia SQLite a corto/largo plazo
 │   │   └── skills/       # Módulos de habilidades y comandos ejecutables
 │   └── frontend/         # Interfaz nativa de escritorio (Tauri + Rust)
 ├── tests/                # Baterías de pruebas unitarias e integración
@@ -49,13 +49,13 @@ capri-assistant/
   - [x] Modelos de validación con Pydantic y endpoint `/api/v1/chat`.
   - [x] Documentación inicial del repositorio.
 
-- [ ] **Fase 2: Sistema de Memoria Local (Local-First Memory)**
-  - [ ] Implementación de persistencia ligera (SQLite / JSON-Store local).
-  - [ ] Módulo de contexto a corto y largo plazo.
+- [x] **Fase 2: Sistema de Memoria Local (Local-First Memory)**
+  - [x] Implementación de persistencia ligera con SQLite.
+  - [x] Historial de chat guardado por sesión (`session_id`).
 
-- [ ] **Fase 3: Motor de Habilidades (Skills Engine)**
-  - [ ] Módulo para ejecución segura de comandos de terminal en Ubuntu.
-  - [ ] Integración de herramientas del sistema (control de volumen, monitor de recursos, procesos).
+- [x] **Fase 3: Motor de Habilidades (Skills Engine)**
+  - [x] Módulo base para habilidades y endpoint de ejecución `/api/v1/skills/execute`.
+  - [x] Habilidad `system_monitor` integrada (lectura de RAM y disco).
 
 - [ ] **Fase 4: Frontend y UI Cyberpunk**
   - [ ] Setup del cliente nativo en Tauri/Rust.
