@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C.A.P.R.I. Cyberpunk Interface</title>
+    <style>
+        :root {
+            --bg-color: #0d0f12;
+            --panel-bg: #161920;
+            --accent-green: #00ff66;
+            --accent-cyan: #00e5ff;
+            --accent-red: #ff0055;
+            --text-color: #c5d1de;
+            --font-family: 'Courier New', Courier, monospace;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-family);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 95vh;
+        }
+
+        header {
+            border-bottom: 2px solid var(--accent-cyan);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            color: var(--accent-cyan);
+            margin: 0;
+            font-size: 1.5rem;
+            text-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+        }
+
+        .status-badge {
+            background: rgba(0, 255, 102, 0.1);
+            border: 1px solid var(--accent-green);
+            color: var(--accent-green);
+            padding: 4px 10px;
+            font-size: 0.85rem;
+            border-radius: 4px;
+        }
+
+        .main-container {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .chat-section {
+            background: var(--panel-bg);
+            border: 1px solid #2a303c;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+        }
+
+        .chat-box {
+            flex: 1;
+            overflow-y: auto;
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            padding: 10px;
+            border-radius: 4px;
+            max-width: 80%;
+            line-height: 1.4;
+        }
+
+        .user-msg {
+            background: rgba(0, 229, 255, 0.1);
+            border-left: 3px solid var(--accent-cyan);
+            align-self: flex-end;
+        }
+
+        .bot-msg {
+            background: rgba(0, 255, 102, 0.1);
+            border-left: 3px solid var(--accent-green);
+            align-self: flex-start;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            background: #090a0c;
+            border: 1px solid #2a303c;
+            color: var(--text-color);
+            padding: 10px;
+            font-family: var(--font-family);
+            outline: none;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent-cyan);
+        }
+
+        button {
+            background: var(--accent-cyan);
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            font-family: var(--font-family);
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        button:hover {
+            box-shadow: 0 0 10px var(--accent-cyan);
+        }
+
+        .sidebar {
+            background: var(--panel-bg);
+            border: 1px solid #2a303c;
+            border-radius: 6px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .sidebar h2 {
+            color: var(--accent-green);
+            font-size: 1rem;
+            margin-top: 0;
+            border-bottom: 1px solid #2a303c;
+            padding-bottom: 5px;
+        }
+
+        .skill-btn {
+            background: rgba(0, 255, 102, 0.1);
+            color: var(--accent-green);
+            border: 1px solid var(--accent-green);
+            width: 100%;
+            text-align: left;
+            padding: 8px;
+            margin-bottom: 5px;
+        }
+
+        .skill-btn:hover {
+            background: var(--accent-green);
+            color: #000;
+        }
+
+        .output-box {
+            background: #090a0c;
+            border: 1px solid #2a303c;
+            padding: 10px;
+            font-size: 0.75rem;
+            white-space: pre-wrap;
+            color: #aaa;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🤖 C.A.P.R.I. // SYSTEM_HUD</h1>
+        <div class="status-badge" id="statusBadge">SYSTEM ONLINE</div>
+    </header>
+
+    <div class="main-container">
+        <div class="chat-section">
+            <div class="chat-box" id="chatBox">
+                <div class="message bot-msg">
+                    <strong>[C.A.P.R.I.]:</strong> Interfaz lista. Sistema en escucha local.
+                </div>
+            </div>
+            <div class="input-area">
+                <input type="text" id="userInput" placeholder="Escribe un mensaje o comando..." onkeydown="if(event.key==='Enter') sendMessage()">
+                <button onclick="sendMessage()">ENVIAR</button>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <h2>HABILIDADES</h2>
+            <button class="skill-btn" onclick="runSkill('system_monitor')">⚡ System Monitor (RAM/Disk)</button>
+            
+            <h2>SALIDA TÉCNICA</h2>
+            <div class="output-box" id="techOutput">Esperando ejecuciones...</div>
+        </div>
+    </div>
+
+    <script>
+        const sessionId = "web_session_" + Math.floor(Math.random() * 10000);
+
+        async function sendMessage() {
+            const input = document.getElementById('userInput');
+            const message = input.value.trim();
+            if (!message) return;
+
+            appendMessage(message, 'user-msg', 'Tú');
+            input.value = '';
+
+            try {
+                const res = await fetch('/api/v1/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId, message: message })
+                });
+                const data = await res.json();
+                appendMessage(data.response, 'bot-msg', 'C.A.P.R.I.');
+            } catch (err) {
+                appendMessage("Error de conexión con el servidor backend.", 'bot-msg', 'SYSTEM');
+            }
+        }
+
+        function appendMessage(text, className, sender) {
+            const chatBox = document.getElementById('chatBox');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${className}`;
+            msgDiv.innerHTML = `<strong>[${sender}]:</strong> ${text}`;
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        async function runSkill(skillName) {
+            const outputBox = document.getElementById('techOutput');
+            outputBox.innerText = `Ejecutando ${skillName}...`;
+
+            try {
+                const res = await fetch('/api/v1/skills/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ skill_name: skillName })
+                });
+                const data = await res.json();
+                outputBox.innerText = JSON.stringify(data.result, null, 2);
+            } catch (err) {
+                outputBox.innerText = "Error ejecutando habilidad.";
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
+from pathlib import Path
 from src.backend.core.schemas import (
     SystemStatusResponse,
     AssistantMessageRequest,
@@ -11,22 +13,20 @@ from src.backend.skills.system_skills import SystemMonitorSkill
 
 app = FastAPI(
     title="C.A.P.R.I. Assistant API",
-    version="0.1.0",
+    version="0.2.0",
     description="Cybernetic Autonomously Programmed Response Interface - Backend API"
 )
 
-# Registro de habilidades disponibles
 AVAILABLE_SKILLS = {
     SystemMonitorSkill.name: SystemMonitorSkill()
 }
 
-@app.get("/", response_model=SystemStatusResponse)
+@app.get("/", response_class=HTMLResponse)
 def read_root():
-    return SystemStatusResponse(
-        status="online",
-        system="C.A.P.R.I. Core Framework",
-        version="0.1.0"
-    )
+    html_path = Path("src/frontend/index.html")
+    if html_path.exists():
+        return html_path.read_text(encoding="utf-8")
+    return "<h1>C.A.P.R.I. API Online</h1>"
 
 @app.get("/health")
 def health_check():
