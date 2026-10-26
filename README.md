@@ -30,36 +30,56 @@ capri-assistant/
 │   │   ├── core/         # Configuración, esquemas Pydantic y lógica base
 │   │   ├── memory/       # Persistencia SQLite a corto/largo plazo
 │   │   └── skills/       # Módulos de habilidades y comandos ejecutables
-│   └── frontend/         # Interfaz nativa de escritorio (Tauri + Rust)
+│   └── frontend/         # Interfaz nativa de escritorio y UI Web Cyberpunk
 ├── tests/                # Baterías de pruebas unitarias e integración
 └── docs/                 # Documentación técnica de arquitectura
 
 * **Backend Core:** FastAPI + Pydantic para una validación estricta de tipos y baja latencia.
 * **Seguridad:** Aislamiento de credenciales locales (`.env` bajo `.gitignore`), integración nativa mediante SSH y ejecución aislada en entorno virtual (`venv`).
-* **Frontend:** (En desarrollo) Interfaz ligera sobre Tauri/Rust.
+* **Frontend:** Dashboard HUD nativo sobre arquitectura ligera.
 
 ---
 
-## 🗺️ Roadmap de Desarrollo
+## 🗺️ Roadmap Extendido de Desarrollo
 
-- [x] **Fase 1: Infraestructura y Core**
+### 🟢 v0.1: Core Architecture & Systems Engine (COMPLETADO)
+- [x] **Fase 1: Infraestructura Base**
   - [x] Estructuración del repositorio Git e integración SSH segura.
   - [x] Entorno virtual e instalación de dependencias base.
   - [x] Endpoint de salud (`/health`) y servidor ASGI con Uvicorn.
   - [x] Modelos de validación con Pydantic y endpoint `/api/v1/chat`.
-  - [x] Documentación inicial del repositorio.
-
-- [x] **Fase 2: Sistema de Memoria Local (Local-First Memory)**
-  - [x] Implementación de persistencia ligera con SQLite.
-  - [x] Historial de chat guardado por sesión (`session_id`).
-
+- [x] **Fase 2: Memoria Local Relacional**
+  - [x] Persistencia liviana con SQLite para historial de conversaciones.
+  - [x] Contexto aislado por identificador de sesión (`session_id`).
 - [x] **Fase 3: Motor de Habilidades (Skills Engine)**
-  - [x] Módulo base para habilidades y endpoint de ejecución `/api/v1/skills/execute`.
-  - [x] Habilidad `system_monitor` integrada (lectura de RAM y disco).
+  - [x] Arquitectura extensible de `BaseSkill` y endpoint `/api/v1/skills/execute`.
+  - [x] Integración de la habilidad `system_monitor` (RAM y disco en Ubuntu).
 
-- [ ] **Fase 4: Frontend y UI Cyberpunk**
-  - [ ] Setup del cliente nativo en Tauri/Rust.
-  - [ ] Dashboard HUD con estética Cyberpunk/Terminal.
+---
+
+### 🟡 v0.2: Interface MVP & Cyberpunk HUD (EN PROGRESO)
+- [ ] **Fase 4: Frontend Web Cyberpunk / Terminal HUD**
+  - [ ] Dashboard interactivo servido desde FastAPI con estética Cyberpunk.
+  - [ ] Consola de comandos dinámicos y monitorización de recursos en tiempo real.
+- [ ] **Fase 5: Extensión de Habilidades del Sistema**
+  - [ ] Habilidades de control de volumen, brillo y gestión de procesos en Linux.
+  - [ ] Ejecución condicional de scripts del sistema con confirmación de seguridad.
+
+---
+
+### 🔴 v0.3: Intelligence Integration & Voice Core (FUTURO)
+- [ ] **Fase 6: Conexión con LLM Local / Ollama**
+  - [ ] Integración de Llama3/Qwen/Mistral corriendo en local.
+  - [ ] Módulo de razonamiento y clasificación automática de intenciones (*Intent Router*).
+- [ ] **Fase 7: Motor de Voz (STT / TTS)**
+  - [ ] Reconocimiento de voz local (Whisper) y síntesis de voz offline (Piper/Coqui).
+
+---
+
+### 🟣 v0.4: Native Desktop Integration (FUTURO)
+- [ ] **Fase 8: Cliente Nativo Tauri / Rust**
+  - [ ] Empaquetado como aplicación nativa de escritorio para Ubuntu (`.deb` / `.AppImage`).
+  - [ ] Bandeja del sistema (*tray icon*), widgets flotantes y atajo de teclado global (`Super + Space`).
 
 ---
 
