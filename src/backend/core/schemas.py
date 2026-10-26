@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 
 class SystemStatusResponse(BaseModel):
     status: str = Field(..., example="online")
@@ -16,4 +16,13 @@ class AssistantMessageResponse(BaseModel):
     session_id: str
     response: str
     history_count: int
+    status: str = "success"
+
+class SkillExecuteRequest(BaseModel):
+    skill_name: str = Field(..., example="system_monitor")
+    params: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+class SkillExecuteResponse(BaseModel):
+    skill_name: str
+    result: Dict[str, Any]
     status: str = "success"
