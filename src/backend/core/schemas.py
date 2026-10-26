@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List, Dict
 
 class SystemStatusResponse(BaseModel):
     status: str = Field(..., example="online")
@@ -8,9 +8,12 @@ class SystemStatusResponse(BaseModel):
     disk_available_gb: Optional[float] = Field(None, example=16.0)
 
 class AssistantMessageRequest(BaseModel):
+    session_id: str = Field(default="default_session", example="session_123")
     message: str = Field(..., min_length=1, example="Hola Capri, ¿cuál es tu estado?")
     context: Optional[dict] = Field(default_factory=dict)
 
 class AssistantMessageResponse(BaseModel):
+    session_id: str
     response: str
+    history_count: int
     status: str = "success"

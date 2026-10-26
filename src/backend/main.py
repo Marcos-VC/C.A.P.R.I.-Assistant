@@ -4,6 +4,7 @@ from src.backend.core.schemas import (
     AssistantMessageRequest,
     AssistantMessageResponse
 )
+from src.backend.memory.repository import save_message, get_recent_history
 
 app = FastAPI(
     title="C.A.P.R.I. Assistant API",
@@ -25,6 +26,20 @@ def health_check():
 
 @app.post("/api/v1/chat", response_model=AssistantMessageResponse)
 def process_message(payload: AssistantMessageRequest):
-    # Respuesta simulada por ahora mientras integramos los módulos de memoria y skills
-    reply = f"C.A.P.R.I. ha recibido tu mensaje: '{payload.message}'"
-    return AssistantMessageResponse(response=reply)
+    # 1. Guardar mensaje entrante del usuario
+    save_message(session_id=payload.session_id, role="user", content=payload.message)
+    
+    # 2. Obtener historial reciente de la sesion
+    history = get_recent_history(session_id=payload.session_id, limit=10)
+    
+    # 3. Generar respuesta con formato de comillas correcto
+    reply = f"C.A.P.R.I. [Sesion {payload.session_id}]: Recibido -> '{payload.message}'. Memoria activa: {len(history)} mensajes."
+    
+    # 4. Guardar la respuesta del asistente
+    save_message(session_id=payload.session_id, role="assistant", content=reply)
+    
+    return AssistantMessageResponse(
+        session_id=payload.session_id,
+        response=reply,
+        history_count=len(history) + 1
+    )
