@@ -1,0 +1,14 @@
+.env
+.env.local
+*.pem
+*.key
+*.db
+*.sqlite3
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+node_modules/
+dist/
+src-tauri/target/
