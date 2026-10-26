@@ -9,7 +9,7 @@ from src.backend.core.schemas import (
     SkillExecuteResponse
 )
 from src.backend.memory.repository import save_message, get_recent_history
-from src.backend.skills.system_skills import SystemMonitorSkill
+from src.backend.skills.registry import get_skill_registry
 from src.backend.core.llm import generate_llm_response
 
 app = FastAPI(
@@ -17,10 +17,6 @@ app = FastAPI(
     version="0.3.0",
     description="Cybernetic Autonomously Programmed Response Interface - Backend API"
 )
-
-AVAILABLE_SKILLS = {
-    SystemMonitorSkill.name: SystemMonitorSkill()
-}
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
@@ -48,12 +44,13 @@ async def process_message(payload: AssistantMessageRequest):
     )
 
 @app.post("/api/v1/skills/execute", response_model=SkillExecuteResponse)
-def execute_skill(payload: SkillExecuteRequest):
-    skill = AVAILABLE_SKILLS.get(payload.skill_name)
+async def execute_skill(payload: SkillExecuteRequest):
+    registry = get_skill_registry()
+    skill = registry.get(payload.skill_name)
     if not skill:
-        raise HTTPException(status_code=404, detail=f"Habilidad '{payload.skill_name}' no encontrada.")
+        raise HTTPException(status_code=404, detail=f"Habilidad '{payload.skill_name}' no encontrada en el registro de C.A.P.R.I.")
     
-    result = skill.execute(**payload.params)
+    result = await registry.execute(payload.skill_name, params=payload.params)
     return SkillExecuteResponse(
         skill_name=payload.skill_name,
         result=result

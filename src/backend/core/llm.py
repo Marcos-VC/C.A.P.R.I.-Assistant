@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import httpx
 from google import genai
 from google.genai import types
+from src.backend.skills.registry import get_skill_registry
 
 load_dotenv()
 
@@ -62,12 +63,16 @@ def _build_gemini_contents(history: List[Dict[str, str]]) -> List[types.Content]
     
     return contents
 
-async def _call_gemini_model(client: genai.Client, model: str, contents: List[types.Content], timeout: float = 8.0) -> str:
-    """Ejecuta una llamada asíncrona a un modelo específico de Gemini."""
+async def _call_gemini_model(client: genai.Client, model: str, contents: List[types.Content], timeout: float = 12.0) -> str:
+    """Ejecuta una llamada asíncrona a un modelo específico de Gemini con soporte nativo de Function Calling."""
+    registry = get_skill_registry()
+    tools = registry.get_gemini_tools()
+
     config = types.GenerateContentConfig(
         system_instruction=SYSTEM_PROMPT,
         temperature=0.7,
         max_output_tokens=600,
+        tools=[tools] if tools else None,
     )
     
     response = await asyncio.wait_for(
@@ -79,6 +84,37 @@ async def _call_gemini_model(client: genai.Client, model: str, contents: List[ty
         timeout=timeout
     )
     
+    # Manejo autónomo de Function Calling si Gemini decide invocar habilidades locales
+    if response and response.function_calls:
+        logger.info("Gemini invocó %d habilidad(es): %s", 
+                    len(response.function_calls), 
+                    [fc.name for fc in response.function_calls])
+        
+        tool_response_parts = []
+        for fc in response.function_calls:
+            skill_result = await registry.execute(fc.name, params=fc.args or {})
+            tool_response_parts.append(
+                types.Part.from_function_response(
+                    name=fc.name,
+                    response={"result": skill_result}
+                )
+            )
+            
+        model_turn = response.candidates[0].content
+        tool_turn = types.Content(role="user", parts=tool_response_parts)
+        
+        followup_contents = list(contents) + [model_turn, tool_turn]
+        followup_response = await asyncio.wait_for(
+            client.aio.models.generate_content(
+                model=model,
+                contents=followup_contents,
+                config=config,
+            ),
+            timeout=timeout
+        )
+        if followup_response and followup_response.text:
+            return followup_response.text.strip()
+
     if response and response.text:
         return response.text.strip()
     raise ValueError(f"El modelo {model} devolvió una respuesta vacía.")
