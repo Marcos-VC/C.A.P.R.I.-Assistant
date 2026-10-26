@@ -1,197 +1,190 @@
 """
 C.A.P.R.I. Desktop Shimeji (Cyberpunk: Edgerunners Style)
-Mascota de escritorio interactiva, autónoma y liviana (<20MB RAM) para Ubuntu Linux.
-Diseño oficial del constructo digital Capri (Project Capricorn).
+Mascota de escritorio interactiva, autónoma y liviana para Ubuntu Linux.
+100% Transparente (sin caja de fondo) mediante PyQt6 y aceleración nativa.
 """
 import os
+import sys
 import math
 import random
-import time
-import urllib.request
 import json
+import urllib.request
 import webbrowser
 import threading
-import tkinter as tk
-from typing import Optional
+
+# Evita el bug de incompatibilidad de GNOME 46 xsettings con GLib en Ubuntu 24.04
+os.environ["QT_QPA_PLATFORMTHEME"] = ""
+os.environ["XDG_CURRENT_DESKTOP"] = "Generic"
+
+from PyQt6.QtWidgets import QApplication, QWidget, QMenu
+from PyQt6.QtCore import Qt, QPoint, QTimer, QRect
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPen, QAction
 
 # Directorio de assets gráficos
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
-# Paleta de colores Cyberpunk
-COLOR_BG = "#0d0f12"
-COLOR_PANEL = "#161920"
-COLOR_CYAN = "#00e5ff"
-COLOR_GREEN = "#00ff66"
-COLOR_MAGENTA = "#ff007f"
-COLOR_RED = "#ff0055"
-COLOR_YELLOW = "#ffcc00"
-COLOR_TEXT = "#c5d1de"
-
-class CapriShimeji:
+class CapriShimeji(QWidget):
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("C.A.P.R.I. Shimeji")
+        super().__init__()
 
-        # Configuración de ventana flotante "Always on Top" y sin bordes
-        self.root.overrideredirect(True)
-        self.root.wm_attributes("-topmost", True)
-        self.root.wm_attributes("-alpha", 0.95)
+        # Ventana transparente sin marcos y siempre al frente (Always on Top)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.SubWindow
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
-        # Dimensiones del Shimeji adaptadas al sprite oficial de Capri
-        self.width = 124
-        self.height = 250
-        self.screen_width = self.root.winfo_screenwidth()
-        self.screen_height = self.root.winfo_screenheight()
+        # Cargar sprites oficiales de Capri (derecha / izquierda)
+        path_right = os.path.join(ASSETS_DIR, "capri_right.png")
+        path_left = os.path.join(ASSETS_DIR, "capri_left.png")
 
-        # Posición inicial: posada sobre el suelo de la pantalla (encima de la barra de tareas)
-        self.x = self.screen_width // 2
-        self.floor_y = self.screen_height - self.height - 42
+        self.pixmap_right = QPixmap(path_right) if os.path.exists(path_right) else QPixmap()
+        self.pixmap_left = QPixmap(path_left) if os.path.exists(path_left) else QPixmap()
+        self.current_pixmap = self.pixmap_right
+
+        # Dimensiones de la ventana (con margen superior para el bocadillo de diálogo)
+        self.sprite_w = self.current_pixmap.width() if not self.current_pixmap.isNull() else 104
+        self.sprite_h = self.current_pixmap.height() if not self.current_pixmap.isNull() else 220
+        self.win_w = max(130, self.sprite_w + 20)
+        self.win_h = self.sprite_h + 35  # Espacio superior para bocadillos
+        self.resize(self.win_w, self.win_h)
+
+        # Dimensiones de la pantalla física
+        screen = QApplication.primaryScreen()
+        screen_geo = screen.geometry() if screen else QRect(0, 0, 1920, 1080)
+        self.screen_width = screen_geo.width()
+        self.screen_height = screen_geo.height()
+
+        # Posición inicial: suelo de la pantalla (justo sobre el panel de tareas de Ubuntu)
+        self.x = self.screen_width // 2 - self.win_w // 2
+        self.floor_y = self.screen_height - self.win_h - 44
         self.y = self.floor_y
 
         # Física y comportamiento autónomo
         self.vx = 2
-        self.vy = 0
-        self.gravity = 1.4
+        self.vy = 0.0
+        self.gravity = 1.3
         self.state = "WALK_RIGHT"  # IDLE, WALK_LEFT, WALK_RIGHT, FALLING, SCANNING, DRAGGED, PAUSED
         self.state_timer = 0
         self.anim_tick = 0
         self.backend_online = False
-        self.dialog_text: Optional[str] = None
+        self.dialog_text = None
         self.dialog_timer = 0
         self.is_running = True
-        self.after_id = None
-
-        # Cargar sprites oficiales de Capri (frente izquierda / derecha)
-        self.sprite_right: Optional[tk.PhotoImage] = None
-        self.sprite_left: Optional[tk.PhotoImage] = None
-        self.load_sprites()
 
         # Control de arrastre con ratón
-        self.drag_start_x = 0
-        self.drag_start_y = 0
+        self.drag_position = QPoint()
         self.is_dragging = False
 
-        # Canvas para renderizar el personaje y sus efectos digitales
-        self.canvas = tk.Canvas(
-            self.root,
-            width=self.width,
-            height=self.height,
-            bg=COLOR_BG,
-            highlightthickness=0
-        )
-        self.canvas.pack(fill="both", expand=True)
+        # Posicionamiento inicial
+        self.move(int(self.x), int(self.y))
 
-        # Eventos del ratón
-        self.canvas.bind("<Button-1>", self.on_left_press)
-        self.canvas.bind("<B1-Motion>", self.on_drag_motion)
-        self.canvas.bind("<ButtonRelease-1>", self.on_left_release)
-        self.canvas.bind("<Double-Button-1>", self.on_double_click)
-        self.canvas.bind("<Button-3>", self.show_context_menu)
+        # Menú contextual cyberpunk
+        self.setup_context_menu()
 
-        # Menú contextual
-        self.menu = tk.Menu(self.root, tearoff=0, bg=COLOR_PANEL, fg=COLOR_TEXT, activebackground=COLOR_CYAN, activeforeground=COLOR_BG)
-        self.menu.add_command(label="⚡ Abrir C.A.P.R.I. HUD", command=self.open_hud)
-        self.menu.add_command(label="📊 Telemetría del Sistema", command=self.query_system_status)
-        self.menu.add_separator()
-        self.menu.add_command(label="⏸ Pausar / Reanudar", command=self.toggle_pause)
-        self.menu.add_command(label="❌ Desactivar Shimeji", command=self.close)
+        # Bucle de juego a 40 FPS (25ms)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.game_loop)
+        self.timer.start(25)
 
-        # Actualizar posición de la ventana
-        self.update_geometry()
-
-        # Iniciar chequeo periódico del backend en hilo secundario
+        # Chequeo periódico de salud del backend
         self.check_backend_health()
 
-        # Bucle principal de animación y lógica física (40 FPS = 25ms)
-        self.after_id = self.root.after(25, self.game_loop)
+    def setup_context_menu(self):
+        """Crea el menú contextual cyberpunk para el clic derecho."""
+        self.menu = QMenu(self)
+        self.menu.setStyleSheet("""
+            QMenu {
+                background-color: #161920;
+                color: #c5d1de;
+                border: 1px solid #00e5ff;
+                font-family: monospace;
+                font-size: 11px;
+                padding: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #00e5ff;
+                color: #0d0f12;
+            }
+        """)
 
-    def load_sprites(self):
-        """Carga las imágenes PNG transparentes de Capri."""
-        try:
-            path_right = os.path.join(ASSETS_DIR, "capri_right.png")
-            path_left = os.path.join(ASSETS_DIR, "capri_left.png")
-            if os.path.exists(path_right):
-                self.sprite_right = tk.PhotoImage(file=path_right)
-            if os.path.exists(path_left):
-                self.sprite_left = tk.PhotoImage(file=path_left)
-        except Exception as e:
-            print(f"[SHIMEJI]: Aviso al cargar sprites ({e}). Usando renderizado alternativo.")
+        act_hud = QAction("⚡ Abrir C.A.P.R.I. HUD", self)
+        act_hud.triggered.connect(self.open_hud)
+        self.menu.addAction(act_hud)
 
-    def close(self):
-        """Cierre ordenado del Shimeji sin señales de error al sistema operativo."""
-        self.is_running = False
-        if self.after_id:
-            try:
-                self.root.after_cancel(self.after_id)
-            except Exception:
-                pass
-        try:
-            self.root.destroy()
-        except Exception:
-            pass
+        act_ram = QAction("📊 Telemetría del Sistema", self)
+        act_ram.triggered.connect(self.query_system_status)
+        self.menu.addAction(act_ram)
 
-    def update_geometry(self):
-        """Posiciona la ventana en pantalla asegurando los límites."""
-        self.x = max(0, min(self.screen_width - self.width, self.x))
-        self.y = max(0, min(self.screen_height - self.height, self.y))
-        self.root.geometry(f"{self.width}x{self.height}+{int(self.x)}+{int(self.y)}")
+        self.menu.addSeparator()
+
+        self.act_pause = QAction("⏸ Pausar / Reanudar", self)
+        self.act_pause.triggered.connect(self.toggle_pause)
+        self.menu.addAction(self.act_pause)
+
+        act_quit = QAction("❌ Desactivar Shimeji", self)
+        act_quit.triggered.connect(self.close)
+        self.menu.addAction(act_quit)
 
     # ==========================================
     # INTERACCIÓN DEL RATÓN
     # ==========================================
-    def on_left_press(self, event):
-        self.is_dragging = True
-        self.drag_start_x = event.x
-        self.drag_start_y = event.y
-        self.state = "DRAGGED"
-        self.vy = 0
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.is_dragging = True
+            self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self.state = "DRAGGED"
+            self.vy = 0.0
+            event.accept()
+        elif event.button() == Qt.MouseButton.RightButton:
+            self.menu.exec(event.globalPosition().toPoint())
 
-    def on_drag_motion(self, event):
-        if self.is_dragging:
-            dx = event.x - self.drag_start_x
-            dy = event.y - self.drag_start_y
-            self.x += dx
-            self.y += dy
-            self.update_geometry()
+    def mouseMoveEvent(self, event):
+        if self.is_dragging and event.buttons() == Qt.MouseButton.LeftButton:
+            new_pos = event.globalPosition().toPoint() - self.drag_position
+            self.x = new_pos.x()
+            self.y = new_pos.y()
+            self.move(int(self.x), int(self.y))
+            event.accept()
 
-    def on_left_release(self, event):
-        self.is_dragging = False
-        if self.y < self.floor_y:
-            self.state = "FALLING"
-        else:
-            self.y = self.floor_y
-            self.state = "IDLE"
-            self.state_timer = 50
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.is_dragging = False
+            if self.y < self.floor_y:
+                self.state = "FALLING"
+            else:
+                self.y = self.floor_y
+                self.state = "IDLE"
+                self.state_timer = 50
+            event.accept()
 
-    def on_double_click(self, event):
-        """Doble clic abre el HUD Web en el navegador predeterminado."""
-        self.open_hud()
-
-    def show_context_menu(self, event):
-        self.menu.tk_popup(event.x_root, event.y_root)
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.open_hud()
 
     def open_hud(self):
-        self.show_dialog("Enlace Neural HUD...")
+        self.show_dialog("Enlace Neural...")
         webbrowser.open("http://127.0.0.1:8000")
 
     def toggle_pause(self):
         if self.state == "PAUSED":
             self.state = "IDLE"
-            self.show_dialog("Patrulla reactivada")
+            self.show_dialog("Reanudando")
         else:
             self.state = "PAUSED"
             self.show_dialog("Modo centinela")
 
     def show_dialog(self, text: str, duration: int = 140):
-        """Muestra un globo de diálogo cyberpunk flotando sobre Capri."""
         self.dialog_text = text
         self.dialog_timer = duration
+        self.update()
 
     # ==========================================
-    # COMUNICACIÓN CON EL BACKEND DE C.A.P.R.I.
+    # ENLACE CON EL BACKEND DE C.A.P.R.I.
     # ==========================================
     def check_backend_health(self):
-        """Verifica en segundo plano si el backend en el puerto 8000 está activo."""
         def _check():
             try:
                 req = urllib.request.Request("http://127.0.0.1:8000/health", headers={"User-Agent": "Capri-Shimeji"})
@@ -202,15 +195,11 @@ class CapriShimeji:
                 self.backend_online = False
             
             if self.is_running:
-                try:
-                    self.root.after(5000, self.check_backend_health)
-                except Exception:
-                    pass
+                QTimer.singleShot(5000, self.check_backend_health)
 
         threading.Thread(target=_check, daemon=True).start()
 
     def query_system_status(self):
-        """Solicita la telemetría del sistema al backend y la muestra en pantalla."""
         def _query():
             try:
                 payload = json.dumps({"skill_name": "system_monitor"}).encode("utf-8")
@@ -227,57 +216,60 @@ class CapriShimeji:
                     if len(lines) > 1:
                         parts = lines[1].split()
                         free_mem = parts[6] if len(parts) > 6 else parts[3]
-                        self.root.after(0, lambda: self.show_dialog(f"RAM libre: {free_mem}"))
+                        self.show_dialog(f"RAM libre: {free_mem}")
                     else:
-                        self.root.after(0, lambda: self.show_dialog("Sistemas estables"))
+                        self.show_dialog("Sistemas OK")
             except Exception:
-                self.root.after(0, lambda: self.show_dialog("Error enlace"))
+                self.show_dialog("Error enlace")
 
         threading.Thread(target=_query, daemon=True).start()
 
     # ==========================================
-    # MÁQUINA DE ESTADOS Y FÍSICA
+    # BUCLE FÍSICO Y COMPORTAMIENTO AUTÓNOMO
     # ==========================================
     def game_loop(self):
-        if not self.is_running:
+        if not self.is_running or self.state == "PAUSED":
             return
+
         self.anim_tick += 1
 
-        # 1. Temporizador de globos de diálogo
+        # Temporizador de diálogo
         if self.dialog_timer > 0:
             self.dialog_timer -= 1
             if self.dialog_timer <= 0:
                 self.dialog_text = None
 
-        # 2. Física de caída con gravedad
+        # Gravedad en caída
         if self.state == "FALLING":
             self.vy += self.gravity
             self.y += self.vy
             if self.y >= self.floor_y:
                 self.y = self.floor_y
-                self.vy = 0
+                self.vy = 0.0
                 self.state = "IDLE"
                 self.state_timer = 40
-            self.update_geometry()
+            self.move(int(self.x), int(self.y))
 
-        # 3. Comportamientos autónomos
+        # Patrulla autónoma
         elif self.state == "WALK_RIGHT":
+            self.current_pixmap = self.pixmap_right
             self.x += self.vx
-            if self.x >= self.screen_width - self.width - 20:
+            if self.x >= self.screen_width - self.win_w - 20:
                 self.state = "WALK_LEFT"
             elif random.random() < 0.008:
                 self.state = "IDLE"
                 self.state_timer = random.randint(40, 120)
-            self.update_geometry()
+            self.move(int(self.x), int(self.y))
 
         elif self.state == "WALK_LEFT":
+            self.current_pixmap = self.pixmap_left
             self.x -= self.vx
             if self.x <= 20:
                 self.state = "WALK_RIGHT"
             elif random.random() < 0.008:
                 self.state = "IDLE"
                 self.state_timer = random.randint(40, 120)
-            self.update_geometry()
+            self.move(int(self.x), int(self.y))
 
         elif self.state == "IDLE":
             self.state_timer -= 1
@@ -297,62 +289,73 @@ class CapriShimeji:
                 self.state = "IDLE"
                 self.state_timer = 40
 
-        # 4. Renderizar gráfico
-        self.render()
-
-        # Siguiente fotograma a ~40 FPS (25ms)
-        if self.is_running:
-            self.after_id = self.root.after(25, self.game_loop)
+        # Redibujar fotograma
+        self.update()
 
     # ==========================================
-    # RENDERIZADO VISUAL DE CAPRI
+    # PINTADO 100% TRANSPARENTE EN PANTALLA
     # ==========================================
-    def render(self):
-        self.canvas.delete("all")
-        cx = self.width // 2
-        cy = self.height // 2 + 10
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Flotación suave y orgánica (efecto constructo digital / engrama)
-        float_offset = math.sin(self.anim_tick * 0.1) * 3 if self.state in ("IDLE", "SCANNING", "DRAGGED") else 0
-        cy += float_offset
+        # Flotación suave y orgánica
+        float_y = int(math.sin(self.anim_tick * 0.1) * 3) if self.state in ("IDLE", "SCANNING", "DRAGGED") else 0
 
         # Micro-glitch digital aleatorio característico de Capri
         glitch_x = 0
-        glitch_y = 0
-        if random.random() < 0.035:
+        if random.random() < 0.04:
             glitch_x = random.choice([-3, 3])
-            glitch_y = random.choice([-2, 2])
 
-        # Selección de sprite según dirección de movimiento
-        sprite_to_draw = self.sprite_left if self.state == "WALK_LEFT" else self.sprite_right
+        # 1. Dibujar Sprite 100% transparente de Capri
+        draw_x = (self.win_w - self.sprite_w) // 2 + glitch_x
+        draw_y = 35 + float_y  # Dejar 35px arriba para el bocadillo
 
-        if sprite_to_draw:
-            # Dibujar sprite real de Capri
-            self.canvas.create_image(cx + glitch_x, cy + glitch_y, anchor="center", image=sprite_to_draw)
-            
-            # Efecto sutil de anomalía / línea de escaneo digital si hay glitch
+        if not self.current_pixmap.isNull():
+            painter.drawPixmap(draw_x, draw_y, self.current_pixmap)
+
+            # Efecto sutil de línea de escaneo si hay glitch
             if glitch_x != 0:
-                line_y = cy + random.randint(-40, 40)
-                self.canvas.create_line(cx - 35, line_y, cx + 35, line_y, fill=COLOR_CYAN, width=1)
-        else:
-            # Fallback procedural de seguridad en caso de no encontrar la imagen
-            self.canvas.create_oval(cx - 20, cy - 40, cx + 20, cy, fill=COLOR_MAGENTA, outline=COLOR_CYAN)
-            self.canvas.create_rectangle(cx - 15, cy, cx + 15, cy + 40, fill=COLOR_PANEL, outline=COLOR_GREEN)
+                pen = QPen(QColor(0, 229, 255, 180), 1)
+                painter.setPen(pen)
+                line_y = draw_y + random.randint(20, self.sprite_h - 20)
+                painter.drawLine(draw_x - 10, line_y, draw_x + self.sprite_w + 10, line_y)
 
-        # Indicador de estado del enlace neuronal (LED holográfico debajo de los pies)
-        led_color = COLOR_GREEN if self.backend_online else COLOR_CYAN
-        self.canvas.create_oval(cx - 3, self.height - 8, cx + 3, self.height - 2, fill=led_color, outline="")
+        # 2. Indicador LED holográfico de enlace con el backend
+        led_color = QColor(0, 255, 102, 220) if self.backend_online else QColor(0, 229, 255, 180)
+        painter.setBrush(led_color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(self.win_w // 2 - 3, self.win_h - 6, 6, 6)
 
-        # Globo de diálogo flotando elegantemente por encima de su pelo rosa
+        # 3. Globo de texto cyberpunk flotando sobre su pelo
         if self.dialog_text:
-            text_w = min(118, max(70, len(self.dialog_text) * 7 + 10))
-            bubble_y = 16
-            self.canvas.create_rectangle(cx - text_w // 2, bubble_y - 12, cx + text_w // 2, bubble_y + 10, fill="#05070a", outline=COLOR_GREEN, width=1)
-            self.canvas.create_text(cx, bubble_y - 1, text=self.dialog_text, fill=COLOR_GREEN, font=("Courier", 8, "bold"))
+            painter.setFont(QFont("monospace", 8, QFont.Weight.Bold))
+            text = self.dialog_text
+            text_w = min(self.win_w - 4, max(65, len(text) * 7 + 10))
+            bubble_x = (self.win_w - text_w) // 2
+            bubble_y = 6
+
+            # Caja del bocadillo
+            painter.setBrush(QColor(5, 7, 10, 230))
+            painter.setPen(QPen(QColor(0, 255, 102), 1))
+            painter.drawRect(bubble_x, bubble_y, text_w, 20)
+
+            # Texto
+            painter.setPen(QColor(0, 255, 102))
+            painter.drawText(QRect(bubble_x, bubble_y, text_w, 20), Qt.AlignmentFlag.AlignCenter, text)
+
+    def close(self):
+        """Cierre ordenado y limpio."""
+        self.is_running = False
+        if hasattr(self, "timer") and self.timer.isActive():
+            self.timer.stop()
+        super().close()
 
 def run():
-    app = CapriShimeji()
-    app.root.mainloop()
+    app = QApplication(sys.argv)
+    shimeji = CapriShimeji()
+    shimeji.show()
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
     run()

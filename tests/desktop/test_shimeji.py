@@ -1,22 +1,24 @@
+import sys
 import pytest
-from unittest.mock import patch, MagicMock
+from PyQt6.QtWidgets import QApplication
 
-@patch("tkinter.Tk")
-def test_shimeji_initialization_and_states(mock_tk_class):
-    mock_root = MagicMock()
-    mock_root.winfo_screenwidth.return_value = 1920
-    mock_root.winfo_screenheight.return_value = 1080
-    mock_tk_class.return_value = mock_root
+@pytest.fixture(scope="session")
+def qapp():
+    """Inicializa una instancia headless de QApplication para tests."""
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication(["pytest", "-platform", "offscreen"])
+    return app
 
+def test_shimeji_initialization_and_states(qapp):
     from src.desktop.shimeji import CapriShimeji
 
     shimeji = CapriShimeji()
 
-    assert shimeji.screen_width == 1920
-    assert shimeji.screen_height == 1080
-    assert shimeji.x == 960
     assert shimeji.state in ("WALK_RIGHT", "IDLE", "WALK_LEFT")
     assert shimeji.is_running is True
+    assert shimeji.win_w > 100
+    assert shimeji.win_h > 200
 
     # Comprobar activación de diálogo
     shimeji.show_dialog("Test Cyberpunk", duration=10)
@@ -32,4 +34,3 @@ def test_shimeji_initialization_and_states(mock_tk_class):
     # Comprobar cierre ordenado
     shimeji.close()
     assert shimeji.is_running is False
-
