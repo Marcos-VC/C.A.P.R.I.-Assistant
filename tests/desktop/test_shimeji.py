@@ -16,7 +16,7 @@ def test_animation_player_frame_advance(qapp):
     sheet = QPixmap("src/desktop/assets/idle_scaled.png")
     assert not sheet.isNull(), "idle_scaled.png debe existir y cargarse"
 
-    player = AnimationPlayer(sheet, n_frames=10, fps=8.0, loop=True)
+    player = AnimationPlayer(sheet, n_frames=16, fps=8.0, loop=True, frame_w=137, frame_h=220)
     assert player._frame_idx == 0
 
     # A 8 FPS, cada frame dura 125ms
@@ -24,7 +24,7 @@ def test_animation_player_frame_advance(qapp):
     assert player._frame_idx == 1
 
     # Avanzar hasta el final y verificar que el loop vuelve a 0
-    player.tick(125 * 9)
+    player.tick(125 * 15)
     assert player._frame_idx == 0  # wrapped
     assert not player.finished
 
@@ -32,16 +32,16 @@ def test_animation_player_frame_advance(qapp):
 def test_animation_player_no_loop(qapp):
     from src.desktop.shimeji import AnimationPlayer
     sheet = QPixmap("src/desktop/assets/idle_scaled.png")
-    player = AnimationPlayer(sheet, n_frames=10, fps=8.0, loop=False)
-    player.tick(125 * 11)   # Más allá del último frame
+    player = AnimationPlayer(sheet, n_frames=16, fps=8.0, loop=False, frame_w=137, frame_h=220)
+    player.tick(125 * 18)   # Más allá del último frame
     assert player.finished
-    assert player._frame_idx == 9   # Fijado en el último frame
+    assert player._frame_idx == 15   # Fijado en el último frame
 
 
 def test_load_animation_right_and_left(qapp):
     from src.desktop.shimeji import load_animation
-    anim_r = load_animation("idle", 10, 8.0, True, "right")
-    anim_l = load_animation("idle", 10, 8.0, True, "left")
+    anim_r = load_animation("idle", 16, 8.0, True, "right", 137, 220)
+    anim_l = load_animation("idle", 16, 8.0, True, "left", 137, 220)
     assert anim_r is not None, "idle derecha debe cargarse"
     assert anim_l is not None, "idle izquierda debe cargarse"
     # Frames deben ser distintos (mirrored)

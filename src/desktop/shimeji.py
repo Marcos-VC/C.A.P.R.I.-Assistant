@@ -2,7 +2,7 @@
 C.A.P.R.I. Desktop Shimeji — Cyberpunk: Edgerunners Edition
 ============================================================
 Mascota de escritorio animada, 100% transparente y siempre-al-frente.
-Motor de sprites con spritesheets multi-frame para animaciones fluidas.
+Motor de sprites con spritesheets multi-frame precisos (240x384 nativo escalado a 137x220).
 Física completa: gravedad, arrastre, patrulla autónoma y máquina de estados.
 """
 import os
@@ -26,7 +26,8 @@ from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPen, QAction
 # Directorio de assets gráficos
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
-FRAME_SIZE = 220      # Tamaño de cada frame en los scaled spritesheets
+FRAME_H = 220         # Altura estándar escalada de los sprites
+FRAME_W = 137         # Anchura estándar escalada (240 * 220 / 384 = 137.5 -> 137)
 DIALOG_MARGIN = 38    # Espacio sobre el sprite para el bocadillo de diálogo
 
 
@@ -36,13 +37,15 @@ DIALOG_MARGIN = 38    # Espacio sobre el sprite para el bocadillo de diálogo
 class AnimationPlayer:
     """
     Reproduce animaciones frame-a-frame desde un spritesheet pre-escalado.
-    Cada hoja tiene frames de FRAME_SIZE×FRAME_SIZE px dispuestos en horizontal.
+    Cada hoja contiene frames de ancho frame_w y alto frame_h dispuestos en horizontal.
     """
-    def __init__(self, sheet: QPixmap, n_frames: int, fps: float = 8.0, loop: bool = True):
+    def __init__(self, sheet: QPixmap, n_frames: int, fps: float = 8.0, loop: bool = True, frame_w: int = 137, frame_h: int = 220):
         self.sheet = sheet
         self.n_frames = n_frames
         self.frame_duration = int(1000 / fps)   # ms por frame
         self.loop = loop
+        self.frame_w = frame_w
+        self.frame_h = frame_h
         self._frame_idx = 0
         self._elapsed = 0
         self.finished = False
@@ -71,12 +74,13 @@ class AnimationPlayer:
     def current_frame(self) -> QPixmap:
         if self.sheet.isNull():
             return self.sheet
-        x = self._frame_idx * FRAME_SIZE
-        return self.sheet.copy(x, 0, FRAME_SIZE, FRAME_SIZE)
+        x = self._frame_idx * self.frame_w
+        return self.sheet.copy(x, 0, self.frame_w, self.frame_h)
 
 
 def load_animation(name: str, n_frames: int, fps: float = 8.0,
-                   loop: bool = True, facing: str = "right") -> Optional[AnimationPlayer]:
+                   loop: bool = True, facing: str = "right",
+                   frame_w: int = 137, frame_h: int = 220) -> Optional[AnimationPlayer]:
     """Carga un spritesheet escalado desde assets/ y devuelve un AnimationPlayer."""
     suffix = "_left_scaled" if facing == "left" else "_scaled"
     path = os.path.join(ASSETS_DIR, f"{name}{suffix}.png")
@@ -88,29 +92,30 @@ def load_animation(name: str, n_frames: int, fps: float = 8.0,
     sheet = QPixmap(path)
     if sheet.isNull():
         return None
-    return AnimationPlayer(sheet, n_frames, fps, loop)
+    return AnimationPlayer(sheet, n_frames, fps, loop, frame_w, frame_h)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # SHIMEJI PRINCIPAL
 # ──────────────────────────────────────────────────────────────────────────────
 class CapriShimeji(QWidget):
-    # Definición de animaciones: (sheet_name, n_frames, fps, loop)
+    # Definición de animaciones: (sheet_name, n_frames, fps, loop, frame_w, frame_h)
     ANIM_DEF = {
-        "idle":    ("idle",         10, 8.0,  True),
-        "dangle":  ("dangle",       15, 12.0, True),
-        "glitch":  ("glitch",        6, 10.0, True),
-        "grin":    ("grin",         10, 10.0, False),
-        "sleep":   ("sleep",        10, 5.0,  True),
-        "wake":    ("wake",          8, 10.0, False),
-        "blink":   ("blink",         2, 4.0,  False),
+        "idle":    ("idle",         16,  8.0, True,  137, 220),
+        "dangle":  ("dangle",       24, 12.0, True,  137, 220),
+        "glitch":  ("glitch",       10, 10.0, True,  137, 220),
+        "grin":    ("grin",         16, 10.0, False, 137, 220),
+        "sleep":   ("sleep",        16,  5.0, True,  137, 220),
+        "wake":    ("wake",         13, 10.0, False, 137, 220),
+        "blink":   ("blink",         4,  4.0, False, 137, 220),
+        "perch":   ("perch",        16,  8.0, True,  220, 220),
     }
 
     # FPS lógico del bucle de juego
     TICK_MS = 25   # 40 FPS
 
-    # Tiempo (ticks) sin actividad antes de dormir
-    SLEEP_AFTER = 40 * 60 * 3   # ~3 minutos
+    # Tiempo (ticks) sin actividad antes de dormir (~3 minutos)
+    SLEEP_AFTER = 40 * 60 * 3
 
     def __init__(self):
         super().__init__()
@@ -125,8 +130,8 @@ class CapriShimeji(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
         # ── Dimensiones ───────────────────────────────────────────────────────
-        self.win_w = FRAME_SIZE + 20
-        self.win_h = FRAME_SIZE + DIALOG_MARGIN
+        self.win_w = FRAME_W + 20
+        self.win_h = FRAME_H + DIALOG_MARGIN
         self.resize(self.win_w, self.win_h)
 
         screen = QApplication.primaryScreen()
@@ -178,10 +183,10 @@ class CapriShimeji(QWidget):
 
     # ── Carga de sprites ──────────────────────────────────────────────────────
     def _load_all_animations(self):
-        for key, (sheet, n, fps, loop) in self.ANIM_DEF.items():
+        for key, (sheet, n, fps, loop, fw, fh) in self.ANIM_DEF.items():
             self.anims[key] = {
-                "right": load_animation(sheet, n, fps, loop, "right"),
-                "left":  load_animation(sheet, n, fps, loop, "left"),
+                "right": load_animation(sheet, n, fps, loop, "right", fw, fh),
+                "left":  load_animation(sheet, n, fps, loop, "left", fw, fh),
             }
 
     def _get_anim(self, key: str) -> Optional[AnimationPlayer]:
@@ -226,25 +231,26 @@ class CapriShimeji(QWidget):
         self.idle_ticks = 0
 
         state_to_anim = {
-            "IDLE":      "idle",
-            "WALK_RIGHT":"idle",
-            "WALK_LEFT": "idle",
-            "FALLING":   "dangle",
-            "DRAGGED":   "dangle",
-            "SCANNING":  "glitch",
-            "SLEEPING":  "sleep",
-            "WAKING":    "wake",
-            "GRINNING":  "grin",
+            "IDLE":       "idle",
+            "WALK_RIGHT": "idle",
+            "WALK_LEFT":  "idle",
+            "FALLING":    "dangle",
+            "DRAGGED":    "dangle",
+            "SCANNING":   "glitch",
+            "SLEEPING":   "sleep",
+            "WAKING":     "wake",
+            "GRINNING":   "grin",
         }
         anim_key = state_to_anim.get(new_state, "idle")
         self.current_anim = self._get_anim(anim_key)
 
     # ── Interacción del ratón ─────────────────────────────────────────────────
     def mousePressEvent(self, event):
+        self._wake_if_sleeping()
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_dragging = True
             self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            if self.state != "DRAGGED":
+            if self.state not in ("SLEEPING", "WAKING"):
                 self.facing = "right"
                 self._transition("DRAGGED")
             self.vy = 0.0
@@ -416,7 +422,6 @@ class CapriShimeji(QWidget):
 
         elif s == "SLEEPING":
             self.idle_ticks += 1
-            # Despertar si el usuario hace clic (manejado en mouse events)
 
         elif s == "WAKING":
             if self.current_anim and self.current_anim.finished:
@@ -440,19 +445,6 @@ class CapriShimeji(QWidget):
             self.idle_ticks = 0
             self._transition("WAKING")
 
-    def mousePressEvent(self, event):
-        self._wake_if_sleeping()
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.is_dragging = True
-            self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            if self.state not in ("SLEEPING", "WAKING"):
-                self.facing = "right"
-                self._transition("DRAGGED")
-            self.vy = 0.0
-            event.accept()
-        elif event.button() == Qt.MouseButton.RightButton:
-            self.menu.exec(event.globalPosition().toPoint())
-
     # ── Pintado ───────────────────────────────────────────────────────────────
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -464,27 +456,26 @@ class CapriShimeji(QWidget):
         # Flotación suave en estados tranquilos
         float_y = 0
         if self.state in ("IDLE", "SCANNING", "SLEEPING"):
-            import math as _m
-            tick = self.game_timer.remainingTime()  # reuse for wave
-            float_y = int(_m.sin(self.game_timer.interval() * 0.001 + id(self) * 0.001) * 2)
+            float_y = int(math.sin(self.idle_ticks * 0.1) * 3)
 
-        # Micro-glitch característica de Capri
+        # Micro-glitch característico de Capri
         gx = 0
         if self.state in ("SCANNING", "GRINNING") and random.random() < 0.06:
             gx = random.choice([-4, 4])
 
-        draw_x = (self.win_w - FRAME_SIZE) // 2 + gx
+        fw = frame.width() if not frame.isNull() else FRAME_W
+        draw_x = (self.win_w - fw) // 2 + gx
         draw_y = DIALOG_MARGIN + float_y
 
-        # Dibujar sprite
+        # Dibujar sprite único
         if not frame.isNull():
             painter.drawPixmap(draw_x, draw_y, frame)
             # Línea de glitch
             if gx != 0:
                 pen = QPen(QColor(0, 229, 255, 160), 1)
                 painter.setPen(pen)
-                ly = draw_y + random.randint(10, FRAME_SIZE - 10)
-                painter.drawLine(draw_x, ly, draw_x + FRAME_SIZE, ly)
+                ly = draw_y + random.randint(10, FRAME_H - 10)
+                painter.drawLine(draw_x - 10, ly, draw_x + fw + 10, ly)
 
         # LED de estado del backend
         led = QColor(0, 255, 102, 220) if self.backend_online else QColor(0, 229, 255, 140)
