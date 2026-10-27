@@ -39,7 +39,7 @@ capri-assistant/
 │   │   ├── skills/
 │   │   │   ├── base.py             # BaseSkill con SecurityLevel y Function Calling
 │   │   │   ├── registry.py         # SkillRegistry: validación y ejecución segura
-│   │   │   └── system_skills.py    # SystemMonitorSkill (RAM, Disco, Uptime)
+│   │   │   └── system_skills.py    # SystemMonitorSkill y AudioControlSkill
 │   │   └── main.py                 # Endpoints FastAPI (REST + HUD)
 │   ├── desktop/
 │   │   ├── shimeji.py              # Mascota de escritorio animada (PyQt6)
@@ -152,8 +152,8 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 ## 🧪 Tests
 
 ```bash
-./venv/bin/pytest
-# → 10 passed in <0.7s (backend API, skills, desktop animation engine)
+pytest
+# → 18 passed in <1.1s (backend API, skills matrix, audio control, desktop animation engine)
 ```
 
 ---
@@ -184,19 +184,19 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 - [x] Máquina de estados completa con física (gravedad, arrastre, patrulla autónoma).
 - [x] Enlace en vivo con el backend: LED verde = online, cyan = offline.
 
-### 🔴 v0.5 — WebSocket Streaming (PRÓXIMO)
+### 🟡 v0.5 — Control del Sistema y Automatización en Ubuntu (EN PROGRESO)
+- [x] `AudioControlSkill` para control de volumen, silencio y reactivación mediante PipeWire/PulseAudio (`wpctl`/`pactl`).
+- [ ] `ProcessManagerSkill`: Monitoreo y gestión de procesos que consumen recursos (con confirmación `CONFIRM_REQUIRED`).
+- [ ] `AppLauncherSkill`: Lanzador de aplicaciones en Ubuntu (`gtk-launch`/`gio`).
+
+### 🔴 v0.6 — Mini-Consola Flotante en el Escritorio
+- [ ] Atajo global (`Super + Space`) o clic central para abrir campo de texto en el Shimeji.
+- [ ] Comunicación directa con C.A.P.R.I. desde el escritorio sin abrir el navegador.
+
+### 🔴 v0.7 — WebSocket Streaming
 - [ ] Endpoint `@app.websocket("/ws/chat")` para streaming de tokens en tiempo real.
 - [ ] Efecto máquina de escribir en el HUD (respuesta carácter a carácter).
 - [ ] Animación `mouth.png` de Capri sincronizada con el streaming de la respuesta.
-
-### 🔴 v0.6 — Skills Expandidas
-- [ ] `VolumeSkill`, `BrightnessSkill`, `ProcessManagerSkill` para Ubuntu.
-- [ ] Flujo de confirmación del usuario para skills `CONFIRM_REQUIRED`.
-- [ ] Intent Router: clasificación automática de intenciones por el LLM.
-
-### 🔴 v0.7 — Memoria Semántica
-- [ ] SQLite FTS5 para búsqueda de historial por palabras clave.
-- [ ] Preferencias persistentes del usuario entre sesiones.
 
 ### 🔴 v0.8 — Empaquetado Nativo
 - [ ] `.desktop` launcher para Ubuntu (lanzar todo con un icono en el dock).

@@ -101,3 +101,43 @@ async def test_call_gemini_model_function_calling_flow():
     assert "Telemetría recibida" in reply
     assert mock_models.generate_content.call_count == 2
 
+
+from src.backend.skills.system_skills import AudioControlSkill
+
+def test_audio_control_gemini_declaration():
+    skill = AudioControlSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "audio_control"
+    assert "action" in decl.parameters.properties
+    assert "level" in decl.parameters.properties
+
+@pytest.mark.anyio
+async def test_audio_control_get_volume():
+    skill = AudioControlSkill()
+    skill._run_command = AsyncMock(return_value=(0, "Volume: 0.65", ""))
+    res = await skill.execute(action="get")
+    assert res["status"] == "success"
+    assert res["volume_percent"] == 65
+    assert res["muted"] is False
+
+@pytest.mark.anyio
+async def test_audio_control_set_volume():
+    skill = AudioControlSkill()
+    skill._run_command = AsyncMock(return_value=(0, "", ""))
+    res = await skill.execute(action="set", level=80)
+    assert res["status"] == "success"
+    assert res["volume_percent"] == 80
+    assert "80%" in res["message"]
+
+@pytest.mark.anyio
+async def test_audio_control_mute_and_unmute():
+    skill = AudioControlSkill()
+    skill._run_command = AsyncMock(return_value=(0, "", ""))
+    
+    mute_res = await skill.execute(action="mute")
+    assert mute_res["status"] == "success"
+    assert mute_res["muted"] is True
+
+    unmute_res = await skill.execute(action="unmute")
+    assert unmute_res["status"] == "success"
+    assert unmute_res["muted"] is False

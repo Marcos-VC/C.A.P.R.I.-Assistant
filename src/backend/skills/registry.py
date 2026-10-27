@@ -2,7 +2,7 @@ import logging
 from typing import Dict, Optional, List, Any
 from google.genai import types
 from src.backend.skills.base import BaseSkill, SecurityLevel
-from src.backend.skills.system_skills import SystemMonitorSkill
+from src.backend.skills.system_skills import SystemMonitorSkill, AudioControlSkill
 
 logger = logging.getLogger("capri.skills")
 
@@ -88,5 +88,6 @@ def get_skill_registry() -> SkillRegistry:
         _default_registry = SkillRegistry()
         # Registrar habilidades base del sistema
         _default_registry.register(SystemMonitorSkill())
+        _default_registry.register(AudioControlSkill())
     return _default_registry
 
