@@ -153,7 +153,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 18 passed in <1.1s (backend API, skills matrix, audio control, desktop animation engine)
+# → 19 passed in <1.1s (backend API, skills matrix, audio control, desktop animation engine, mini-console)
 ```
 
 ---
@@ -184,14 +184,16 @@ pytest
 - [x] Máquina de estados completa con física (gravedad, arrastre, patrulla autónoma).
 - [x] Enlace en vivo con el backend: LED verde = online, cyan = offline.
 
+### 🟢 v0.6 — Mini-Consola Táctica Flotante en el Escritorio
+- [x] Mini-consola `CyberCommandConsole` estilizada Cyberpunk (borde cian `#00e5ff`, texto verde `#00ff66`, fondo oscuro `#0d0f12`).
+- [x] Activación inmediata mediante clic simple sobre Capri, clic central (rueda) o menú contextual ("💬 Enviar directiva...").
+- [x] Despacho no bloqueante al backend (`/api/v1/chat`), animación táctica `SCANNING` y respuesta directa en bocadillo multi-línea con reacción `grin`.
+- [x] Cancelación rápida con tecla `Escape` o clic fuera del campo.
+
 ### 🟡 v0.5 — Control del Sistema y Automatización en Ubuntu (EN PROGRESO)
 - [x] `AudioControlSkill` para control de volumen, silencio y reactivación mediante PipeWire/PulseAudio (`wpctl`/`pactl`).
 - [ ] `ProcessManagerSkill`: Monitoreo y gestión de procesos que consumen recursos (con confirmación `CONFIRM_REQUIRED`).
 - [ ] `AppLauncherSkill`: Lanzador de aplicaciones en Ubuntu (`gtk-launch`/`gio`).
-
-### 🔴 v0.6 — Mini-Consola Flotante en el Escritorio
-- [ ] Atajo global (`Super + Space`) o clic central para abrir campo de texto en el Shimeji.
-- [ ] Comunicación directa con C.A.P.R.I. desde el escritorio sin abrir el navegador.
 
 ### 🔴 v0.7 — WebSocket Streaming
 - [ ] Endpoint `@app.websocket("/ws/chat")` para streaming de tokens en tiempo real.

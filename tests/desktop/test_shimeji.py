@@ -99,3 +99,25 @@ def test_shimeji_all_animations_load(qapp):
         assert s.anims[key]["right"] is not None, f"'{key}' right debe cargarse"
         assert s.anims[key]["left"] is not None, f"'{key}' left debe cargarse"
     s.close()
+
+
+def test_shimeji_command_console(qapp):
+    from src.desktop.shimeji import CapriShimeji, CyberCommandConsole
+
+    submitted = []
+    def on_submit(cmd):
+        submitted.append(cmd)
+
+    console = CyberCommandConsole(on_submit)
+    assert console.isWidgetType()
+    console.setText("status")
+    console.submit_callback(console.text())
+    assert submitted == ["status"]
+    console.close()
+
+    s = CapriShimeji()
+    s.open_console()
+    assert s.console is not None
+    assert s.console.isVisible()
+    s.close()
+

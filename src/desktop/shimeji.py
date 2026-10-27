@@ -2,7 +2,8 @@
 C.A.P.R.I. Desktop Shimeji — Cyberpunk: Edgerunners Edition
 ============================================================
 Mascota de escritorio animada, 100% transparente y siempre-al-frente.
-Motor de sprites con spritesheets multi-frame precisos (240x384 nativo escalado a 137x220).
+Incluye Mini-Consola Táctica Flotante para interactuar por texto directamente
+desde el escritorio sin necesidad de abrir el navegador.
 Física completa: gravedad, arrastre, patrulla autónoma y máquina de estados.
 """
 import os
@@ -19,7 +20,7 @@ from typing import Optional, Dict, List
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 os.environ["QT_QPA_PLATFORMTHEME"] = ""
 
-from PyQt6.QtWidgets import QApplication, QWidget, QMenu
+from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QLineEdit
 from PyQt6.QtCore import Qt, QPoint, QTimer, QRect
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPen, QAction
 
@@ -28,7 +29,62 @@ ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 FRAME_H = 220         # Altura estándar escalada de los sprites
 FRAME_W = 137         # Anchura estándar escalada (240 * 220 / 384 = 137.5 -> 137)
-DIALOG_MARGIN = 38    # Espacio sobre el sprite para el bocadillo de diálogo
+DIALOG_MARGIN = 48    # Espacio sobre el sprite para el bocadillo de diálogo multi-línea
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MINI-CONSOLA TÁCTICA FLOTANTE
+# ──────────────────────────────────────────────────────────────────────────────
+class CyberCommandConsole(QLineEdit):
+    """
+    Mini-consola táctica flotante cyberpunk para enviar directivas a C.A.P.R.I.
+    desde cualquier ventana del escritorio sin necesidad de abrir el navegador.
+    """
+    def __init__(self, submit_callback):
+        super().__init__()
+        self.submit_callback = submit_callback
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
+        )
+        self.setStyleSheet("""
+            QLineEdit {
+                background-color: #0d0f12;
+                color: #00ff66;
+                border: 2px solid #00e5ff;
+                border-radius: 4px;
+                padding: 5px 10px;
+                font-family: 'Courier New', monospace;
+                font-size: 11px;
+                selection-background-color: #00e5ff;
+                selection-color: #0d0f12;
+            }
+            QLineEdit:focus {
+                border: 2px solid #00ff66;
+            }
+        """)
+        self.setPlaceholderText("[ > Directiva táctica a Capri... ]")
+        self.resize(270, 34)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            event.accept()
+        elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            txt = self.text().strip()
+            self.hide()
+            self.clear()
+            if txt:
+                self.submit_callback(txt)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def focusOutEvent(self, event):
+        # Auto-ocultar si el usuario pulsa en otra ventana
+        self.hide()
+        super().focusOutEvent(event)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -85,7 +141,6 @@ def load_animation(name: str, n_frames: int, fps: float = 8.0,
     suffix = "_left_scaled" if facing == "left" else "_scaled"
     path = os.path.join(ASSETS_DIR, f"{name}{suffix}.png")
     if not os.path.exists(path):
-        # Fallback: sheet sin sufijo
         path = os.path.join(ASSETS_DIR, f"{name}.png")
     if not os.path.exists(path):
         return None
@@ -99,7 +154,6 @@ def load_animation(name: str, n_frames: int, fps: float = 8.0,
 # SHIMEJI PRINCIPAL
 # ──────────────────────────────────────────────────────────────────────────────
 class CapriShimeji(QWidget):
-    # Definición de animaciones: (sheet_name, n_frames, fps, loop, frame_w, frame_h)
     ANIM_DEF = {
         "idle":    ("idle",         16,  8.0, True,  137, 220),
         "dangle":  ("dangle",       24, 12.0, True,  137, 220),
@@ -111,11 +165,8 @@ class CapriShimeji(QWidget):
         "perch":   ("perch",        16,  8.0, True,  220, 220),
     }
 
-    # FPS lógico del bucle de juego
     TICK_MS = 25   # 40 FPS
-
-    # Tiempo (ticks) sin actividad antes de dormir (~3 minutos)
-    SLEEP_AFTER = 40 * 60 * 3
+    SLEEP_AFTER = 40 * 60 * 3   # 3 minutos de inactividad
 
     def __init__(self):
         super().__init__()
@@ -124,13 +175,13 @@ class CapriShimeji(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool          # Sin botón en la barra de tareas
+            Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
-        # ── Dimensiones ───────────────────────────────────────────────────────
-        self.win_w = FRAME_W + 20
+        # ── Dimensiones (anchura suficiente para bocadillos multi-línea) ──────
+        self.win_w = 260
         self.win_h = FRAME_H + DIALOG_MARGIN
         self.resize(self.win_w, self.win_h)
 
@@ -141,7 +192,7 @@ class CapriShimeji(QWidget):
 
         # ── Física y posición ─────────────────────────────────────────────────
         self.floor_y = self.screen_height - self.win_h - 44
-        self.pos_x: float = float(self.screen_width // 2)
+        self.pos_x: float = float(self.screen_width // 2 - self.win_w // 2)
         self.pos_y: float = float(self.floor_y)
         self.vx: float = 2.0
         self.vy: float = 0.0
@@ -149,9 +200,9 @@ class CapriShimeji(QWidget):
 
         # ── Estado de la máquina ──────────────────────────────────────────────
         self.state: str = "IDLE"
-        self.facing: str = "right"          # "left" | "right"
+        self.facing: str = "right"
         self.state_timer: int = 0
-        self.idle_ticks: int = 0            # Para detectar inactividad → sleep
+        self.idle_ticks: int = 0
         self.is_running: bool = True
 
         # ── Diálogos ──────────────────────────────────────────────────────────
@@ -163,7 +214,11 @@ class CapriShimeji(QWidget):
 
         # ── Arrastre con ratón ────────────────────────────────────────────────
         self.drag_offset = QPoint()
+        self.press_pos = QPoint()
         self.is_dragging: bool = False
+
+        # ── Consola de comandos ───────────────────────────────────────────────
+        self.console: Optional[CyberCommandConsole] = None
 
         # ── Cargar animaciones ────────────────────────────────────────────────
         self.anims: Dict[str, Dict[str, Optional[AnimationPlayer]]] = {}
@@ -190,7 +245,6 @@ class CapriShimeji(QWidget):
             }
 
     def _get_anim(self, key: str) -> Optional[AnimationPlayer]:
-        """Devuelve el AnimationPlayer para el estado y facing actuales."""
         group = self.anims.get(key, {})
         anim = group.get(self.facing) or group.get("right")
         if anim:
@@ -216,6 +270,7 @@ class CapriShimeji(QWidget):
             a.triggered.connect(slot)
             self.menu.addAction(a)
 
+        act("💬 Enviar directiva...", self.open_console)
         act("⚡ Abrir C.A.P.R.I. HUD", self.open_hud)
         act("📊 Telemetría del Sistema", self.query_system_status)
         self.menu.addSeparator()
@@ -225,7 +280,6 @@ class CapriShimeji(QWidget):
 
     # ── Transiciones de estado ────────────────────────────────────────────────
     def _transition(self, new_state: str, timer: int = 0):
-        """Cambia al nuevo estado y rearma la animación correspondiente."""
         self.state = new_state
         self.state_timer = timer
         self.idle_ticks = 0
@@ -244,16 +298,89 @@ class CapriShimeji(QWidget):
         anim_key = state_to_anim.get(new_state, "idle")
         self.current_anim = self._get_anim(anim_key)
 
+    # ── Mini-Consola Táctica Flotante ─────────────────────────────────────────
+    def open_console(self):
+        """Abre la barra de entrada de comandos táctica en el escritorio."""
+        if self.console is None:
+            self.console = CyberCommandConsole(self.send_directive)
+
+        # Posicionar la consola justo debajo de Capri o encima según espacio
+        con_w = 270
+        con_h = 34
+        con_x = int(self.pos_x + (self.win_w - con_w) // 2)
+        con_x = max(10, min(self.screen_width - con_w - 10, con_x))
+
+        # Intentar situar encima del bocadillo; si no cabe, abajo
+        con_y = int(self.pos_y - con_h - 6)
+        if con_y < 30:
+            con_y = int(self.pos_y + self.win_h + 4)
+
+        self.console.move(con_x, con_y)
+        self.console.show()
+        self.console.raise_()
+        self.console.activateWindow()
+        self.console.setFocus()
+        self._transition("IDLE", timer=999)  # Pausar patrulla mientras escribe
+
+    def send_directive(self, text: str):
+        """Envía la orden ingresada al endpoint /api/v1/chat del backend."""
+        self.show_dialog("Procesando directiva...", duration=240)
+        self._transition("SCANNING", timer=200)
+
+        def _worker():
+            try:
+                payload = json.dumps({
+                    "session_id": "desktop_shimeji_session",
+                    "message": text
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8000/api/v1/chat",
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "Capri-Shimeji/2.0"
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=12.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    raw_reply = data.get("response", "").strip()
+
+                    # Limpiar asteriscos y formatear resumen para el bocadillo
+                    clean = raw_reply.replace("**", "").replace("*", "")
+                    lines = [l.strip() for l in clean.split("\n") if l.strip()]
+                    summary = " ".join(lines[:2]) if lines else "Directiva completada."
+                    if len(summary) > 130:
+                        summary = summary[:127] + "..."
+
+                    def _success_ui():
+                        self.show_dialog(summary, duration=320)
+                        self._transition("GRINNING")
+
+                    QTimer.singleShot(0, _success_ui)
+
+            except Exception:
+                def _fail_ui():
+                    self.show_dialog("Error: Backend offline", duration=180)
+                    self._transition("IDLE")
+                QTimer.singleShot(0, _fail_ui)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     # ── Interacción del ratón ─────────────────────────────────────────────────
     def mousePressEvent(self, event):
         self._wake_if_sleeping()
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_dragging = True
+            self.press_pos = event.globalPosition().toPoint()
             self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             if self.state not in ("SLEEPING", "WAKING"):
                 self.facing = "right"
                 self._transition("DRAGGED")
             self.vy = 0.0
+            event.accept()
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            # Clic central: abrir consola táctica
+            self.open_console()
             event.accept()
         elif event.button() == Qt.MouseButton.RightButton:
             self.menu.exec(event.globalPosition().toPoint())
@@ -268,8 +395,13 @@ class CapriShimeji(QWidget):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            was_dragged = (event.globalPosition().toPoint() - self.press_pos).manhattanLength() > 6
             self.is_dragging = False
-            if self.pos_y < self.floor_y:
+
+            if not was_dragged:
+                # Clic simple sobre Capri -> Abrir consola táctica
+                self.open_console()
+            elif self.pos_y < self.floor_y:
                 self._transition("FALLING")
             else:
                 self.pos_y = self.floor_y
@@ -278,11 +410,13 @@ class CapriShimeji(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # Doble clic abre el HUD web
+            if self.console and self.console.isVisible():
+                self.console.hide()
             self.open_hud()
 
-    # ── Acciones del menú ─────────────────────────────────────────────────────
     def open_hud(self):
-        self.show_dialog("Enlace Neural...")
+        self.show_dialog("Enlace Neural HUD...")
         webbrowser.open("http://127.0.0.1:8000")
 
     def toggle_pause(self):
@@ -293,7 +427,7 @@ class CapriShimeji(QWidget):
             self.state = "PAUSED"
             self.show_dialog("Modo centinela")
 
-    def show_dialog(self, text: str, duration: int = 150):
+    def show_dialog(self, text: str, duration: int = 180):
         self.dialog_text = text
         self.dialog_timer = duration
         self.update()
@@ -311,9 +445,9 @@ class CapriShimeji(QWidget):
                     self.backend_online = resp.status == 200
             except Exception:
                 self.backend_online = False
-            # Reacción visual cuando el backend vuelve a estar online
+            
             if self.backend_online and not was_online:
-                self.show_dialog("Neural link established")
+                self.show_dialog("Neural link OK")
                 self._transition("GRINNING")
             if self.is_running:
                 QTimer.singleShot(5000, self.check_backend_health)
@@ -397,9 +531,6 @@ class CapriShimeji(QWidget):
         elif s == "IDLE":
             self.idle_ticks += 1
             self.state_timer -= 1
-            # Parpadeo ocasional durante IDLE
-            if random.random() < 0.003:
-                self.show_dialog("...")
             if self.idle_ticks >= self.SLEEP_AFTER:
                 self._transition("SLEEPING")
             elif self.state_timer <= 0:
@@ -434,12 +565,10 @@ class CapriShimeji(QWidget):
         self.update()
 
     def _sync_position(self):
-        """Aplica pos_x/pos_y a la posición real de la ventana con clamp."""
         self.pos_x = max(0.0, min(float(self.screen_width - self.win_w), self.pos_x))
         self.pos_y = max(0.0, min(float(self.screen_height - self.win_h), self.pos_y))
         self.move(int(self.pos_x), int(self.pos_y))
 
-    # ── Despertar al hacer clic durante el sueño ──────────────────────────────
     def _wake_if_sleeping(self):
         if self.state == "SLEEPING":
             self.idle_ticks = 0
@@ -470,7 +599,6 @@ class CapriShimeji(QWidget):
         # Dibujar sprite único
         if not frame.isNull():
             painter.drawPixmap(draw_x, draw_y, frame)
-            # Línea de glitch
             if gx != 0:
                 pen = QPen(QColor(0, 229, 255, 160), 1)
                 painter.setPen(pen)
@@ -483,23 +611,28 @@ class CapriShimeji(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(self.win_w // 2 - 4, self.win_h - 8, 8, 8)
 
-        # Bocadillo de diálogo
+        # Bocadillo de diálogo multi-línea
         if self.dialog_text:
             font = QFont("Courier New", 8, QFont.Weight.Bold)
             painter.setFont(font)
             text = self.dialog_text
-            text_w = min(self.win_w - 6, max(70, len(text) * 7 + 14))
+            text_w = min(self.win_w - 12, max(80, len(text) * 7 + 16))
+            bubble_h = 36 if len(text) > 28 else 22
             bx = (self.win_w - text_w) // 2
-            by = 4
+            by = max(4, DIALOG_MARGIN - bubble_h - 4)
+
             painter.setBrush(QColor(5, 7, 10, 235))
             painter.setPen(QPen(QColor(0, 255, 102), 1))
-            painter.drawRoundedRect(bx, by, text_w, 22, 3, 3)
+            painter.drawRoundedRect(bx, by, text_w, bubble_h, 4, 4)
             painter.setPen(QColor(0, 255, 102))
-            painter.drawText(QRect(bx, by, text_w, 22), Qt.AlignmentFlag.AlignCenter, text)
+            text_rect = QRect(bx + 4, by + 2, text_w - 8, bubble_h - 4)
+            painter.drawText(text_rect, int(Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignCenter), text)
 
     # ── Cierre ordenado ───────────────────────────────────────────────────────
     def close(self):
         self.is_running = False
+        if hasattr(self, "console") and self.console:
+            self.console.close()
         if hasattr(self, "game_timer") and self.game_timer.isActive():
             self.game_timer.stop()
         super().close()
