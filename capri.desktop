@@ -13,3 +13,4 @@ Actions=OpenHUD;
 [Desktop Action OpenHUD]
 Name=Abrir C.A.P.R.I. HUD Web
 Exec=xdg-open http://127.0.0.1:8000
+

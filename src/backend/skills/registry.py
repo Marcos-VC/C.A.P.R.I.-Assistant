@@ -10,6 +10,8 @@ from src.backend.skills.system_skills import (
     ProcessManagerSkill,
     TimerReminderSkill,
     WebLookupSkill,
+    NetworkInfoSkill,
+    FileManagerSkill,
 )
 
 logger = logging.getLogger("capri.skills")
@@ -102,5 +104,7 @@ def get_skill_registry() -> SkillRegistry:
         _default_registry.register(ProcessManagerSkill())
         _default_registry.register(TimerReminderSkill())
         _default_registry.register(WebLookupSkill())
+        _default_registry.register(NetworkInfoSkill())
+        _default_registry.register(FileManagerSkill())
     return _default_registry
 

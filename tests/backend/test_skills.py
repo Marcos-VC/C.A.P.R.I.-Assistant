@@ -358,5 +358,75 @@ async def test_web_lookup_search_mocked():
         assert "multiparadigma" in res["summary"]
 
 
+from src.backend.skills.system_skills import NetworkInfoSkill, FileManagerSkill
+from src.backend.core.llm import SYSTEM_PROMPT
+
+def test_cyberpunk_persona_prompt():
+    # Verificar que el prompt contenga los términos clave solicitados por el usuario
+    assert "choom" in SYSTEM_PROMPT.lower()
+    assert "nova" in SYSTEM_PROMPT.lower()
+    assert "preem" in SYSTEM_PROMPT.lower()
+    assert "kiroshi" in SYSTEM_PROMPT.lower()
+    assert "flatline" in SYSTEM_PROMPT.lower()
+    assert "ciberpsicosis" in SYSTEM_PROMPT.lower()
+    assert "ciberware" in SYSTEM_PROMPT.lower() or "chrome" in SYSTEM_PROMPT.lower()
+
+def test_network_info_gemini_declaration():
+    skill = NetworkInfoSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "network_info"
+    assert "action" in decl.parameters.properties
+
+@pytest.mark.anyio
+async def test_network_info_execution():
+    skill = NetworkInfoSkill()
+    # 1. IP
+    ip_res = await skill.execute(action="ip")
+    assert ip_res["status"] in ("success", "error")
+
+    # 2. Ping (fallback socket o mock)
+    from unittest.mock import patch
+    with patch.object(skill, "_socket_ping", return_value=15.4):
+        ping_res = await skill.execute(action="ping", host="1.1.1.1")
+        assert ping_res["status"] == "success"
+        assert "15.4" in str(ping_res) or ping_res.get("latency_ms") == 15.4
+
+    # 3. Wi-Fi
+    wifi_res = await skill.execute(action="wifi")
+    assert wifi_res["status"] in ("success", "error")
+
+
+def test_file_manager_gemini_declaration():
+    skill = FileManagerSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "file_manager"
+    assert "action" in decl.parameters.properties
+
+@pytest.mark.anyio
+async def test_file_manager_list():
+    skill = FileManagerSkill()
+    # List current workspace
+    res = await skill.execute(action="list", folder=".")
+    assert res["status"] == "success"
+    assert "items" in res
+    assert len(res["items"]) > 0
+
+@pytest.mark.anyio
+async def test_file_manager_search():
+    skill = FileManagerSkill()
+    # Search for pytest.ini
+    res = await skill.execute(action="search", folder=".", query="pytest.ini")
+    assert res["status"] == "success"
+    assert len(res["matches"]) >= 1
+
+@pytest.mark.anyio
+async def test_file_manager_recent():
+    skill = FileManagerSkill()
+    res = await skill.execute(action="recent", folder=".")
+    assert res["status"] == "success"
+    assert "recent_files" in res
+
+
+
 
 

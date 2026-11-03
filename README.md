@@ -153,7 +153,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 40 passed in <1.3s (backend API, skills matrix, audio, power, processes, timers/pomodoro, web/weather, desktop engine, mini-console, speech bubble)
+# → 47 passed in <1.5s (backend API, skills matrix, audio, power, processes, timers/pomodoro, web/weather, network, files, desktop engine, mini-console, speech bubble)
 ```
 
 ---
@@ -198,6 +198,9 @@ pytest
 - [x] `ProcessManagerSkill`: Monitoreo y gestión de procesos (top CPU, top RAM, búsqueda y terminación segura con confirmación `CONFIRM_REQUIRED`).
 - [x] `TimerReminderSkill`: Temporizadores, Pomodoro y recordatorios con notificaciones nativas de escritorio (`notify-send`).
 - [x] `WebLookupSkill`: Pronóstico meteorológico en tiempo real (`wttr.in`) y búsquedas de conocimiento rápido.
+- [x] `NetworkInfoSkill`: Diagnóstico de red, latencia/ping a hosts, IPs locales y estado de conexión Wi-Fi (`nmcli`).
+- [x] `FileManagerSkill`: Exploración táctica de carpetas (`Downloads`, `Documents`, etc.), búsqueda de archivos y archivos modificados recientemente.
+- [x] **Cyberpunk Edgerunners Persona**: Personalidad inmersiva y léxico auténtico de Night City integrado (*choom, preem, nova, ciberware, ciberpsicosis, flatline, Kiroshi, zerar, gonzo*).
 
 ### ✅ v0.8 — Empaquetado y Lanzador Unificado (COMPLETADO)
 - [x] Script `run.sh` unificado: arranca el backend FastAPI en segundo plano si no está activo, lanza el Shimeji gráfico y limpia los procesos al cerrar.

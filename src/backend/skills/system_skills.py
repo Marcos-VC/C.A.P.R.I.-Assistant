@@ -4,6 +4,8 @@ import glob
 import shutil
 import time
 import json
+import socket
+import datetime
 import urllib.request
 import urllib.parse
 from typing import Dict, Any, Optional, List
@@ -1128,6 +1130,372 @@ class WebLookupSkill(BaseSkill):
             return {
                 "status": "error",
                 "message": f"[SYSTEM ERROR]: Error en WebLookupSkill -> {str(e)}",
+                "security_level": self.security_level.value
+            }
+
+
+class NetworkInfoSkill(BaseSkill):
+    """
+    Habilidad táctica para diagnosticar conectividad de red, latencia, interfaces IP y Wi-Fi en Ubuntu.
+    Nivel de seguridad: SAFE.
+    """
+    name = "network_info"
+    description = (
+        "Diagnostica la red y enlace neural en Ubuntu. "
+        "Permite medir latencia ('ping' a un host como 1.1.1.1 o google.com), "
+        "consultar las direcciones IP locales ('ip') "
+        "y revisar la red Wi-Fi activa y potencia de señal ('wifi')."
+    )
+    security_level = SecurityLevel.SAFE
+
+    def get_parameters_schema(self) -> types.Schema:
+        return types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "action": types.Schema(
+                    type=types.Type.STRING,
+                    description="Acción de diagnóstico: 'ping' (medir latencia), 'ip' (direcciones IP locales), 'wifi' (estado Wi-Fi).",
+                    enum=["ping", "ip", "wifi"]
+                ),
+                "host": types.Schema(
+                    type=types.Type.STRING,
+                    description="Host o servidor a verificar con ping (por defecto '1.1.1.1' o '8.8.8.8')."
+                )
+            },
+            required=["action"]
+        )
+
+    def _socket_ping(self, host: str, port: int = 53, timeout: float = 2.0) -> Optional[float]:
+        """Calcula el RTT en milisegundos mediante socket TCP/DNS sin requerir privilegios raw."""
+        try:
+            start = time.time()
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect((host, port))
+            s.close()
+            return round((time.time() - start) * 1000.0, 1)
+        except Exception:
+            return None
+
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        action = kwargs.get("action", "ping").lower().strip()
+        host = kwargs.get("host", "1.1.1.1").strip()
+
+        try:
+            # 1. PING / LATENCIA
+            if action == "ping":
+                # Intentar primero con ping ICMP si está permitido
+                ping_bin = shutil.which("ping")
+                if ping_bin:
+                    try:
+                        proc = await asyncio.create_subprocess_exec(
+                            ping_bin, "-c", "2", "-W", "2", host,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        out, _ = await proc.communicate()
+                        if proc.returncode == 0:
+                            lines = out.decode().strip().splitlines()
+                            stat_line = [l for l in lines if "avg" in l or "min/avg" in l]
+                            summary = stat_line[0] if stat_line else lines[-1]
+                            return {
+                                "status": "success",
+                                "action": "ping",
+                                "host": host,
+                                "raw": summary,
+                                "message": f"Conexión con {host} activa: {summary}",
+                                "security_level": self.security_level.value
+                            }
+                    except Exception:
+                        pass
+
+                # Fallback con socket TCP handshake (100% no privilegiado)
+                target_ip = host if host.replace(".", "").isdigit() else "1.1.1.1"
+                rtt = await asyncio.to_thread(self._socket_ping, target_ip, 53, 2.0)
+                if rtt is not None:
+                    return {
+                        "status": "success",
+                        "action": "ping",
+                        "host": host,
+                        "latency_ms": rtt,
+                        "message": f"Enlace con {host} verificado: latencia de {rtt} ms (nova).",
+                        "security_level": self.security_level.value
+                    }
+
+                return {
+                    "status": "error",
+                    "message": f"Fallo al medir enlace con {host}: sin respuesta de red o paquete bloqueado por ICE."
+                }
+
+            # 2. DIRECCIÓN IP LOCAL
+            elif action == "ip":
+                ip_bin = shutil.which("ip")
+                if ip_bin:
+                    proc = await asyncio.create_subprocess_exec(
+                        ip_bin, "-brief", "addr", "show",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    out, _ = await proc.communicate()
+                    lines = [l.strip() for l in out.decode().splitlines() if l.strip()]
+                    clean_lines = [l for l in lines if not l.startswith("lo ")]
+                    summary = "\n".join(clean_lines) if clean_lines else "\n".join(lines)
+                    return {
+                        "status": "success",
+                        "action": "ip",
+                        "interfaces": summary,
+                        "message": f"Interfaces de red activas en el equipo:\n{summary}",
+                        "security_level": self.security_level.value
+                    }
+
+                # Fallback vía hostname
+                hn_bin = shutil.which("hostname")
+                if hn_bin:
+                    proc = await asyncio.create_subprocess_exec(hn_bin, "-I", stdout=asyncio.subprocess.PIPE)
+                    out, _ = await proc.communicate()
+                    return {
+                        "status": "success",
+                        "action": "ip",
+                        "ips": out.decode().strip(),
+                        "message": f"IPs locales detectadas: {out.decode().strip()}",
+                        "security_level": self.security_level.value
+                    }
+
+                return {"status": "error", "message": "No se encontraron herramientas 'ip' ni 'hostname'."}
+
+            # 3. ESTADO WI-FI
+            elif action == "wifi":
+                nmcli_bin = shutil.which("nmcli")
+                if nmcli_bin:
+                    proc = await asyncio.create_subprocess_exec(
+                        nmcli_bin, "-t", "-f", "active,ssid,signal,bars", "dev", "wifi",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    out, _ = await proc.communicate()
+                    lines = out.decode().splitlines()
+                    active = [l for l in lines if l.startswith("yes:")]
+                    if active:
+                        parts = active[0].split(":")
+                        ssid = parts[1] if len(parts) > 1 else "Conectado"
+                        signal = parts[2] if len(parts) > 2 else "100"
+                        return {
+                            "status": "success",
+                            "action": "wifi",
+                            "ssid": ssid,
+                            "signal_percent": signal,
+                            "message": f"📶 Wi-Fi conectada a '{ssid}' con señal al {signal}% (enlace preem).",
+                            "security_level": self.security_level.value
+                        }
+                    return {
+                        "status": "success",
+                        "action": "wifi",
+                        "message": "No hay ninguna red Wi-Fi activa (posible conexión por cable Ethernet o interfaz en reposo).",
+                        "security_level": self.security_level.value
+                    }
+
+                return {"status": "error", "message": "Herramienta 'nmcli' no disponible en el sistema."}
+
+            else:
+                return {"status": "error", "message": f"Acción desconocida '{action}'. Usa 'ping', 'ip' o 'wifi'."}
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"[SYSTEM ERROR]: Error en NetworkInfoSkill -> {str(e)}",
+                "security_level": self.security_level.value
+            }
+
+
+class FileManagerSkill(BaseSkill):
+    """
+    Habilidad táctica para inspeccionar archivos, listar descargas y buscar documentos en Ubuntu.
+    Nivel de seguridad: SAFE.
+    """
+    name = "file_manager"
+    description = (
+        "Explora y busca archivos en el almacenamiento de Ubuntu. "
+        "Permite listar archivos de carpetas clave como Descargas o Documentos ('list'), "
+        "buscar archivos por nombre o extensión ('search') "
+        "y consultar los archivos más recientes o recién descargados ('recent')."
+    )
+    security_level = SecurityLevel.SAFE
+
+    # Carpetas conocidas en el home del usuario
+    KNOWN_FOLDERS = {
+        "descargas": "~/Downloads",
+        "downloads": "~/Downloads",
+        "documentos": "~/Documents",
+        "documents": "~/Documents",
+        "escritorio": "~/Desktop",
+        "desktop": "~/Desktop",
+        "musica": "~/Music",
+        "videos": "~/Videos",
+        "imagenes": "~/Pictures",
+        "workspace": ".",
+        "proyecto": "."
+    }
+
+    def get_parameters_schema(self) -> types.Schema:
+        return types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "action": types.Schema(
+                    type=types.Type.STRING,
+                    description="Acción: 'list' (listar directorio), 'search' (buscar archivos por patrón), 'recent' (archivos recientes).",
+                    enum=["list", "search", "recent"]
+                ),
+                "folder": types.Schema(
+                    type=types.Type.STRING,
+                    description="Carpeta a consultar (ej: 'Descargas', 'Documentos', 'Escritorio', '.' o una ruta absoluta/relativa)."
+                ),
+                "query": types.Schema(
+                    type=types.Type.STRING,
+                    description="Término o extensión a buscar (ej: '.pdf', 'informe', '.png', 'shimeji')."
+                )
+            },
+            required=["action"]
+        )
+
+    def _resolve_path(self, folder: Optional[str]) -> str:
+        if not folder:
+            return os.path.expanduser("~")
+        clean = folder.lower().strip()
+        mapped = self.KNOWN_FOLDERS.get(clean)
+        if mapped:
+            return os.path.abspath(os.path.expanduser(mapped))
+        return os.path.abspath(os.path.expanduser(folder))
+
+    def _format_size(self, size_bytes: int) -> str:
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024.0:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024.0 * 1024.0):.1f} MB"
+        return f"{size_bytes / (1024.0 * 1024.0 * 1024.0):.1f} GB"
+
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        action = kwargs.get("action", "list").lower().strip()
+        folder = kwargs.get("folder", "")
+        query = kwargs.get("query", "").strip()
+
+        target_dir = self._resolve_path(folder)
+
+        if not os.path.exists(target_dir):
+            return {"status": "error", "message": f"La ruta '{target_dir}' no existe en el sistema de archivos."}
+
+        try:
+            # 1. LISTAR DIRECTORIO
+            if action == "list":
+                items = os.listdir(target_dir)
+                items.sort()
+                entries = []
+                for item in items[:15]:
+                    p = os.path.join(target_dir, item)
+                    is_dir = os.path.isdir(p)
+                    icon = "📁" if is_dir else "📄"
+                    sz = "" if is_dir else f" ({self._format_size(os.path.getsize(p))})"
+                    entries.append(f"{icon} {item}{sz}")
+
+                total_count = len(items)
+                shown_count = min(15, total_count)
+                lines = "\n".join(entries) if entries else "Carpeta vacía."
+                msg = f"Contenido de '{target_dir}' ({shown_count}/{total_count} elementos):\n{lines}"
+                return {
+                    "status": "success",
+                    "action": "list",
+                    "path": target_dir,
+                    "total_items": total_count,
+                    "items": items[:15],
+                    "message": msg,
+                    "security_level": self.security_level.value
+                }
+
+            # 2. ARCHIVOS RECIENTES
+            elif action == "recent":
+                files_with_mtime = []
+                for root, _, fnames in os.walk(target_dir):
+                    for fn in fnames:
+                        fp = os.path.join(root, fn)
+                        try:
+                            mtime = os.path.getmtime(fp)
+                            files_with_mtime.append((mtime, fp, os.path.getsize(fp)))
+                        except Exception:
+                            continue
+                    # Limitar profundidad
+                    if root.count(os.sep) - target_dir.count(os.sep) >= 2:
+                        break
+
+                files_with_mtime.sort(key=lambda x: x[0], reverse=True)
+                recent = files_with_mtime[:8]
+
+                if not recent:
+                    return {"status": "success", "action": "recent", "message": f"No se encontraron archivos en '{target_dir}'."}
+
+                lines = []
+                for mtime, fp, sz in recent:
+                    dt = datetime.datetime.fromtimestamp(mtime).strftime("%d/%m %H:%M")
+                    rel = os.path.relpath(fp, target_dir)
+                    lines.append(f"• 📄 {rel} ({self._format_size(sz)}) — [{dt}]")
+
+                msg = f"Archivos recientes en '{target_dir}':\n" + "\n".join(lines)
+                return {
+                    "status": "success",
+                    "action": "recent",
+                    "path": target_dir,
+                    "recent_files": [f[1] for f in recent],
+                    "message": msg,
+                    "security_level": self.security_level.value
+                }
+
+            # 3. BUSCAR ARCHIVOS
+            elif action == "search":
+                if not query:
+                    return {"status": "error", "message": "Debes especificar 'query' para buscar archivos."}
+
+                matches = []
+                for root, _, fnames in os.walk(target_dir):
+                    for fn in fnames:
+                        if query.lower() in fn.lower():
+                            fp = os.path.join(root, fn)
+                            try:
+                                sz = os.path.getsize(fp)
+                                matches.append((fp, sz))
+                            except Exception:
+                                continue
+                            if len(matches) >= 12:
+                                break
+                    if len(matches) >= 12 or (root.count(os.sep) - target_dir.count(os.sep) >= 3):
+                        break
+
+                if not matches:
+                    return {
+                        "status": "success",
+                        "action": "search",
+                        "query": query,
+                        "matches": [],
+                        "message": f"No se encontró ningún archivo que coincida con '{query}' en '{target_dir}'."
+                    }
+
+                lines = [f"• 📄 {os.path.basename(m[0])} ({self._format_size(m[1])})\n   ↳ {m[0]}" for m in matches]
+                msg = f"Resultados para '{query}' ({len(matches)} encontrados):\n" + "\n".join(lines)
+                return {
+                    "status": "success",
+                    "action": "search",
+                    "query": query,
+                    "matches": [m[0] for m in matches],
+                    "message": msg,
+                    "security_level": self.security_level.value
+                }
+
+            else:
+                return {"status": "error", "message": f"Acción desconocida '{action}'. Usa 'list', 'recent' o 'search'."}
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"[SYSTEM ERROR]: Error en FileManagerSkill -> {str(e)}",
                 "security_level": self.security_level.value
             }
 

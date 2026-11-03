@@ -69,3 +69,4 @@ fi
 # 2. Lanzar Desktop Shimeji (interfaz gráfica)
 echo "✦ Desplegando a Capri en el escritorio GNOME..."
 $PYTHON src/desktop/shimeji.py
+
