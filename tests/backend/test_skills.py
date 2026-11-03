@@ -141,3 +141,45 @@ async def test_audio_control_mute_and_unmute():
     unmute_res = await skill.execute(action="unmute")
     assert unmute_res["status"] == "success"
     assert unmute_res["muted"] is False
+
+
+from src.backend.skills.system_skills import AppLauncherSkill
+
+def test_app_launcher_gemini_declaration():
+    skill = AppLauncherSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "app_launcher"
+    assert "app_name" in decl.parameters.properties
+
+def test_app_launcher_find_desktop_file():
+    skill = AppLauncherSkill()
+    # Debe encontrar aplicaciones reales instaladas en el sistema (ej. terminal o calculator o snap firefox)
+    match_term = skill._find_desktop_file("terminal")
+    assert match_term is not None
+    desktop_id, path = match_term
+    assert "terminal" in desktop_id.lower() or "terminal" in path.lower()
+
+    match_calc = skill._find_desktop_file("calculadora")
+    assert match_calc is not None
+
+@pytest.mark.anyio
+async def test_app_launcher_missing_arg():
+    skill = AppLauncherSkill()
+    res = await skill.execute(app_name="")
+    assert res["status"] == "error"
+
+@pytest.mark.anyio
+async def test_app_launcher_mocked_success():
+    skill = AppLauncherSkill()
+    skill._find_desktop_file = MagicMock(return_value=("org.gnome.Calculator", "/usr/share/applications/org.gnome.Calculator.desktop"))
+    # Mock subprocess exec
+    from unittest.mock import patch
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+        mock_exec.return_value = mock_proc
+        res = await skill.execute(app_name="calculadora")
+        assert res["status"] == "success"
+        assert res["desktop_id"] == "org.gnome.Calculator"
+

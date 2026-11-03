@@ -1,5 +1,8 @@
 import asyncio
-from typing import Dict, Any
+import os
+import glob
+import shutil
+from typing import Dict, Any, Optional, List
 from google.genai import types
 from src.backend.skills.base import BaseSkill, SecurityLevel
 
@@ -210,3 +213,183 @@ class AudioControlSkill(BaseSkill):
                 "message": f"[SYSTEM ERROR]: Error en AudioControlSkill -> {str(e)}",
                 "security_level": self.security_level.value
             }
+
+
+class AppLauncherSkill(BaseSkill):
+    """
+    Habilidad táctica para abrir y lanzar aplicaciones en Ubuntu Linux (GNOME).
+    Permite abrir navegadores (Firefox, Chrome), editores (VS Code), terminales,
+    utilidades (calculadora, explorador de archivos, ajustes) o cualquier app instalada.
+    Nivel de seguridad: SAFE.
+    """
+    name = "app_launcher"
+    description = (
+        "Lanza o abre una aplicación instalada en el sistema operativo Ubuntu "
+        "(ejemplos: 'firefox', 'code' / 'vscode', 'terminal', 'calculadora', 'spotify', 'archivos' / 'nautilus', 'ajustes', etc.)."
+    )
+    security_level = SecurityLevel.SAFE
+
+    # Mapeo de alias comunes a identificadores de escritorio y ejecutables
+    ALIAS_MAP = {
+        "firefox": ["firefox_firefox.desktop", "firefox.desktop"],
+        "navegador": ["firefox_firefox.desktop", "firefox.desktop", "google-chrome.desktop"],
+        "browser": ["firefox_firefox.desktop", "firefox.desktop", "google-chrome.desktop"],
+        "chrome": ["google-chrome.desktop", "chromium.desktop"],
+        "code": ["code_code.desktop", "code.desktop"],
+        "vscode": ["code_code.desktop", "code.desktop"],
+        "vs code": ["code_code.desktop", "code.desktop"],
+        "terminal": ["org.gnome.Terminal.desktop", "gnome-terminal.desktop"],
+        "consola": ["org.gnome.Terminal.desktop", "gnome-terminal.desktop"],
+        "calculadora": ["org.gnome.Calculator.desktop", "gnome-calculator.desktop"],
+        "calculator": ["org.gnome.Calculator.desktop", "gnome-calculator.desktop"],
+        "archivos": ["org.gnome.Nautilus.desktop", "nautilus.desktop"],
+        "files": ["org.gnome.Nautilus.desktop", "nautilus.desktop"],
+        "carpetas": ["org.gnome.Nautilus.desktop", "nautilus.desktop"],
+        "nautilus": ["org.gnome.Nautilus.desktop", "nautilus.desktop"],
+        "ajustes": ["org.gnome.Settings.desktop", "gnome-control-center.desktop"],
+        "configuracion": ["org.gnome.Settings.desktop", "gnome-control-center.desktop"],
+        "settings": ["org.gnome.Settings.desktop", "gnome-control-center.desktop"],
+        "spotify": ["spotify_spotify.desktop", "spotify.desktop"],
+        "editor": ["org.gnome.TextEditor.desktop", "gedit_gedit.desktop", "gedit.desktop"],
+        "texto": ["org.gnome.TextEditor.desktop", "gedit_gedit.desktop", "gedit.desktop"],
+    }
+
+    def get_parameters_schema(self) -> types.Schema:
+        return types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "app_name": types.Schema(
+                    type=types.Type.STRING,
+                    description="Nombre o alias de la aplicación que se desea abrir (ej: 'firefox', 'code', 'terminal', 'calculadora', 'archivos', 'spotify')."
+                )
+            },
+            required=["app_name"]
+        )
+
+    def _find_desktop_file(self, query: str) -> Optional[tuple[str, str]]:
+        """
+        Busca un archivo .desktop que coincida con la consulta en los directorios estándar de Ubuntu.
+        Devuelve una tupla (desktop_id, absolute_path) o None.
+        """
+        clean = query.lower().strip()
+        desktop_dirs = [
+            "/usr/share/applications",
+            "/var/lib/snapd/desktop/applications",
+            os.path.expanduser("~/.local/share/applications")
+        ]
+
+        # 1. Comprobar tabla de alias
+        candidates = self.ALIAS_MAP.get(clean, [clean if clean.endswith(".desktop") else f"{clean}.desktop"])
+
+        for cand in candidates:
+            for d in desktop_dirs:
+                path = os.path.join(d, cand)
+                if os.path.exists(path):
+                    desktop_id = cand[:-8] if cand.endswith(".desktop") else cand
+                    return desktop_id, path
+
+        # 2. Búsqueda por subcadena en nombres de archivo .desktop
+        for d in desktop_dirs:
+            if not os.path.isdir(d):
+                continue
+            for fname in os.listdir(d):
+                if fname.endswith(".desktop") and clean in fname.lower():
+                    path = os.path.join(d, fname)
+                    desktop_id = fname[:-8]
+                    return desktop_id, path
+
+        return None
+
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        app_name = kwargs.get("app_name", "").strip()
+        if not app_name:
+            return {
+                "status": "error",
+                "message": "Debes especificar el parámetro 'app_name' para lanzar una aplicación."
+            }
+
+        env = os.environ.copy()
+        if "DISPLAY" not in env:
+            env["DISPLAY"] = ":0"
+        if "WAYLAND_DISPLAY" not in env and os.path.exists(f"/run/user/{os.getuid()}/wayland-0"):
+            env["WAYLAND_DISPLAY"] = "wayland-0"
+
+        # 1. Intentar localizar archivo .desktop
+        match = self._find_desktop_file(app_name)
+        if match:
+            desktop_id, desktop_path = match
+
+            # Intentar con gtk-launch
+            if shutil.which("gtk-launch"):
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "gtk-launch", desktop_id,
+                        env=env,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, stderr = await proc.communicate()
+                    if proc.returncode == 0:
+                        return {
+                            "status": "success",
+                            "app_name": app_name,
+                            "launcher": "gtk-launch",
+                            "desktop_id": desktop_id,
+                            "message": f"Aplicación '{app_name}' iniciada correctamente con gtk-launch ({desktop_id}).",
+                            "security_level": self.security_level.value
+                        }
+                except Exception:
+                    pass
+
+            # Fallback: gio launch
+            if shutil.which("gio"):
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "gio", "launch", desktop_path,
+                        env=env,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, stderr = await proc.communicate()
+                    if proc.returncode == 0:
+                        return {
+                            "status": "success",
+                            "app_name": app_name,
+                            "launcher": "gio launch",
+                            "desktop_path": desktop_path,
+                            "message": f"Aplicación '{app_name}' iniciada correctamente con gio launch.",
+                            "security_level": self.security_level.value
+                        }
+                except Exception:
+                    pass
+
+        # 2. Fallback por ejecutable directo (PATH)
+        bin_path = shutil.which(app_name.lower())
+        if bin_path:
+            try:
+                # Lanzar en segundo plano sin esperar a que termine la app GUI
+                await asyncio.create_subprocess_exec(
+                    bin_path,
+                    env=env,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                return {
+                    "status": "success",
+                    "app_name": app_name,
+                    "launcher": "direct_binary",
+                    "binary_path": bin_path,
+                    "message": f"Aplicación '{app_name}' ejecutada desde binario ({bin_path}).",
+                    "security_level": self.security_level.value
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "message": f"Fallo al ejecutar binario '{bin_path}': {str(e)}"
+                }
+
+        return {
+            "status": "error",
+            "message": f"No se encontró la aplicación '{app_name}' en los registros de escritorio (.desktop) ni en el PATH del sistema."
+        }
+

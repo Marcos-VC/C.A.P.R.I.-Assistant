@@ -153,7 +153,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 19 passed in <1.1s (backend API, skills matrix, audio control, desktop animation engine, mini-console)
+# → 26 passed in <1.1s (backend API, skills matrix, audio control, app launcher, desktop animation engine, mini-console, speech bubble)
 ```
 
 ---
@@ -184,16 +184,17 @@ pytest
 - [x] Máquina de estados completa con física (gravedad, arrastre, patrulla autónoma).
 - [x] Enlace en vivo con el backend: LED verde = online, cyan = offline.
 
-### 🟢 v0.6 — Mini-Consola Táctica Flotante en el Escritorio
+### ✅ v0.6 — Mini-Consola y Bocadillo de Respuesta Interactivo (COMPLETADO)
 - [x] Mini-consola `CyberCommandConsole` estilizada Cyberpunk (borde cian `#00e5ff`, texto verde `#00ff66`, fondo oscuro `#0d0f12`).
 - [x] Activación inmediata mediante clic simple sobre Capri, clic central (rueda) o menú contextual ("💬 Enviar directiva...").
-- [x] Despacho no bloqueante al backend (`/api/v1/chat`), animación táctica `SCANNING` y respuesta directa en bocadillo multi-línea con reacción `grin`.
-- [x] Cancelación rápida con tecla `Escape` o clic fuera del campo.
+- [x] Bocadillo de respuesta completo `CyberSpeechBubble` (ventana flotante persistente, tamaño dinámico, scroll): muestra la respuesta íntegra del LLM sin truncar.
+- [x] Se cierra al hacer clic en él, pulsar `Esc` o botón `[✕]`.
+- [x] Despacho no bloqueante al backend (`/api/v1/chat`) con animación táctica `SCANNING` → `GRINNING`.
 
-### 🟡 v0.5 — Control del Sistema y Automatización en Ubuntu (EN PROGRESO)
+### ✅ v0.5 — Control del Sistema y Skills en Ubuntu (COMPLETADO)
 - [x] `AudioControlSkill` para control de volumen, silencio y reactivación mediante PipeWire/PulseAudio (`wpctl`/`pactl`).
+- [x] `AppLauncherSkill`: Lanzador de aplicaciones en Ubuntu (`gtk-launch`/`gio`/binario directo), con tabla de alias en castellano (firefox, terminal, calculadora, spotify…).
 - [ ] `ProcessManagerSkill`: Monitoreo y gestión de procesos que consumen recursos (con confirmación `CONFIRM_REQUIRED`).
-- [ ] `AppLauncherSkill`: Lanzador de aplicaciones en Ubuntu (`gtk-launch`/`gio`).
 
 ### 🔴 v0.7 — WebSocket Streaming
 - [ ] Endpoint `@app.websocket("/ws/chat")` para streaming de tokens en tiempo real.

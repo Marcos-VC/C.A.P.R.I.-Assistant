@@ -20,7 +20,10 @@ from typing import Optional, Dict, List
 os.environ["QT_QPA_PLATFORM"] = "xcb"
 os.environ["QT_QPA_PLATFORMTHEME"] = ""
 
-from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QLineEdit
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QMenu, QLineEdit,
+    QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QFrame, QTextBrowser
+)
 from PyQt6.QtCore import Qt, QPoint, QTimer, QRect
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPen, QAction
 
@@ -85,6 +88,164 @@ class CyberCommandConsole(QLineEdit):
         # Auto-ocultar si el usuario pulsa en otra ventana
         self.hide()
         super().focusOutEvent(event)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# BOCADILLO DE DIÁLOGO TÁCTICO FLOTANTE (CYBER SPEECH BUBBLE)
+# ──────────────────────────────────────────────────────────────────────────────
+class CyberSpeechBubble(QWidget):
+    """
+    Bocadillo interactivo cyberpunk para mostrar respuestas completas, explicaciones
+    y resultados de directivas de C.A.P.R.I. en el escritorio.
+    Permanece abierto hasta que el usuario hace clic sobre él, pulsa el botón [✕] o Esc.
+    """
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.WindowStaysOnTopHint |
+            Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+        self.root_layout = QVBoxLayout(self)
+        self.root_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Marco con diseño Cyberpunk
+        self.card = QFrame()
+        self.card.setObjectName("bubbleCard")
+        self.card.setStyleSheet("""
+            QFrame#bubbleCard {
+                background-color: #0c0f16;
+                border: 2px solid #00e5ff;
+                border-radius: 8px;
+            }
+        """)
+
+        card_layout = QVBoxLayout(self.card)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(6)
+
+        # Encabezado con título cyberpunk y botón cerrar
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.title_label = QLabel("✦ C.A.P.R.I. // RESPUESTA")
+        self.title_label.setStyleSheet("""
+            color: #00e5ff;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+        """)
+
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setFixedSize(22, 22)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #ff0055;
+                border: 1px solid #ff0055;
+                border-radius: 4px;
+                font-family: monospace;
+                font-weight: bold;
+                font-size: 11px;
+                padding: 0px;
+            }
+            QPushButton:hover {
+                background-color: #ff0055;
+                color: #0d0f12;
+            }
+        """)
+        self.close_btn.clicked.connect(self.hide)
+
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch()
+        header_layout.addWidget(self.close_btn)
+        card_layout.addLayout(header_layout)
+
+        # Cuerpo del mensaje: texto desplazable con formato limpio
+        self.text_browser = QTextBrowser()
+        self.text_browser.setOpenExternalLinks(True)
+        self.text_browser.setReadOnly(True)
+        self.text_browser.setStyleSheet("""
+            QTextBrowser {
+                background-color: transparent;
+                color: #a8ffb2;
+                border: none;
+                font-family: 'Courier New', monospace;
+                font-size: 11px;
+            }
+            QScrollBar:vertical {
+                background: #0d0f12;
+                width: 6px;
+                margin: 0px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background: #00e5ff;
+                min-height: 12px;
+                border-radius: 3px;
+            }
+        """)
+        card_layout.addWidget(self.text_browser)
+
+        # Indicador de ayuda al pie
+        self.hint_label = QLabel("[ Clic en la ventana o Esc para cerrar ]")
+        self.hint_label.setStyleSheet("""
+            color: #556677;
+            font-family: 'Courier New', monospace;
+            font-size: 9px;
+        """)
+        card_layout.addWidget(self.hint_label)
+
+        self.root_layout.addWidget(self.card)
+
+    def show_message(self, text: str, pos_x: float, pos_y: float,
+                     capri_w: int, capri_h: int, screen_w: int, screen_h: int,
+                     title: str = "✦ C.A.P.R.I. // RESPUESTA"):
+        """Muestra el mensaje formateado y posiciona el bocadillo cerca de Capri."""
+        self.title_label.setText(title)
+        self.text_browser.setPlainText(text)
+
+        # Dimensiones dinámicas según longitud del contenido
+        bubble_w = 340
+        char_count = len(text)
+        if char_count < 80:
+            bubble_h = 110
+        elif char_count < 220:
+            bubble_h = 160
+        else:
+            bubble_h = 240
+
+        self.resize(bubble_w, bubble_h)
+
+        # Posicionamiento: arriba de Capri si cabe, o abajo si está cerca del borde superior
+        bx = int(pos_x + (capri_w - bubble_w) // 2)
+        bx = max(15, min(screen_w - bubble_w - 15, bx))
+
+        by = int(pos_y - bubble_h - 12)
+        if by < 30:
+            # Si se sale por arriba, colocar debajo de Capri
+            by = int(pos_y + capri_h + 12)
+        by = max(15, min(screen_h - bubble_h - 15, by))
+
+        self.move(bx, by)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def mousePressEvent(self, event):
+        """Cierra el bocadillo al hacer clic en cualquier parte de la ventana."""
+        self.hide()
+        event.accept()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -220,6 +381,9 @@ class CapriShimeji(QWidget):
         # ── Consola de comandos ───────────────────────────────────────────────
         self.console: Optional[CyberCommandConsole] = None
 
+        # ── Bocadillo de respuesta interactivo ────────────────────────────────
+        self.speech_bubble: Optional[CyberSpeechBubble] = None
+
         # ── Cargar animaciones ────────────────────────────────────────────────
         self.anims: Dict[str, Dict[str, Optional[AnimationPlayer]]] = {}
         self._load_all_animations()
@@ -324,8 +488,12 @@ class CapriShimeji(QWidget):
 
     def send_directive(self, text: str):
         """Envía la orden ingresada al endpoint /api/v1/chat del backend."""
-        self.show_dialog("Procesando directiva...", duration=240)
-        self._transition("SCANNING", timer=200)
+        self.show_dialog("Procesando...", duration=999)
+        self._transition("SCANNING", timer=999)
+
+        # Ocultar bocadillo anterior si estaba visible
+        if self.speech_bubble and self.speech_bubble.isVisible():
+            self.speech_bubble.hide()
 
         def _worker():
             try:
@@ -341,26 +509,44 @@ class CapriShimeji(QWidget):
                         "User-Agent": "Capri-Shimeji/2.0"
                     }
                 )
-                with urllib.request.urlopen(req, timeout=12.0) as resp:
+                with urllib.request.urlopen(req, timeout=18.0) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     raw_reply = data.get("response", "").strip()
 
-                    # Limpiar asteriscos y formatear resumen para el bocadillo
-                    clean = raw_reply.replace("**", "").replace("*", "")
-                    lines = [l.strip() for l in clean.split("\n") if l.strip()]
-                    summary = " ".join(lines[:2]) if lines else "Directiva completada."
-                    if len(summary) > 130:
-                        summary = summary[:127] + "..."
+                    # Limpiar marcado Markdown (asteriscos, etc.)
+                    clean = raw_reply.replace("**", "").replace("*", "").strip()
+                    if not clean:
+                        clean = "Directiva ejecutada."
+
+                    # Resumen corto para el bocadillo mini (primeras ~70 chars)
+                    first_line = [l.strip() for l in clean.split("\n") if l.strip()]
+                    brief = first_line[0][:72] + "…" if first_line and len(first_line[0]) > 72 else (first_line[0] if first_line else "OK")
 
                     def _success_ui():
-                        self.show_dialog(summary, duration=320)
+                        # 1) Bocadillo mini temporal con primera línea de respuesta
+                        self.show_dialog(brief, duration=280)
                         self._transition("GRINNING")
+                        # 2) Si hay contenido significativo (pregunta / respuesta larga),
+                        #    abrir el bocadillo interactivo completo
+                        if len(clean) > 60 or "\n" in clean:
+                            if self.speech_bubble is None:
+                                self.speech_bubble = CyberSpeechBubble()
+                            self.speech_bubble.show_message(
+                                text=clean,
+                                pos_x=self.pos_x,
+                                pos_y=self.pos_y,
+                                capri_w=self.win_w,
+                                capri_h=self.win_h,
+                                screen_w=self.screen_width,
+                                screen_h=self.screen_height,
+                            )
 
                     QTimer.singleShot(0, _success_ui)
 
-            except Exception:
+            except Exception as exc:
+                err_msg = str(exc)
                 def _fail_ui():
-                    self.show_dialog("Error: Backend offline", duration=180)
+                    self.show_dialog("Error: Backend offline", duration=200)
                     self._transition("IDLE")
                 QTimer.singleShot(0, _fail_ui)
 
@@ -633,6 +819,8 @@ class CapriShimeji(QWidget):
         self.is_running = False
         if hasattr(self, "console") and self.console:
             self.console.close()
+        if hasattr(self, "speech_bubble") and self.speech_bubble:
+            self.speech_bubble.close()
         if hasattr(self, "game_timer") and self.game_timer.isActive():
             self.game_timer.stop()
         super().close()

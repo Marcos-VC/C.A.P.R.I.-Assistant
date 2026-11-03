@@ -121,3 +121,55 @@ def test_shimeji_command_console(qapp):
     assert s.console.isVisible()
     s.close()
 
+
+def test_speech_bubble_show_and_hide(qapp):
+    from src.desktop.shimeji import CyberSpeechBubble
+
+    bubble = CyberSpeechBubble()
+    bubble.show_message(
+        text="Esta es una respuesta táctica de C.A.P.R.I. con suficiente contenido para que aparezca el bocadillo completo.",
+        pos_x=800.0,
+        pos_y=600.0,
+        capri_w=260,
+        capri_h=268,
+        screen_w=1920,
+        screen_h=1080,
+    )
+    assert bubble.isVisible()
+    bubble.hide()
+    assert not bubble.isVisible()
+    bubble.close()
+
+
+def test_speech_bubble_short_msg_also_shows(qapp):
+    from src.desktop.shimeji import CyberSpeechBubble
+
+    bubble = CyberSpeechBubble()
+    bubble.show_message(
+        text="OK",
+        pos_x=100.0, pos_y=100.0,
+        capri_w=260, capri_h=268,
+        screen_w=1920, screen_h=1080,
+    )
+    # Tamaño mínimo aún debe mostrarse
+    assert bubble.isVisible()
+    bubble.close()
+
+
+def test_shimeji_speech_bubble_instantiated(qapp):
+    from src.desktop.shimeji import CapriShimeji, CyberSpeechBubble
+
+    s = CapriShimeji()
+    assert s.speech_bubble is None  # lazy, no instanciado hasta la 1ª respuesta
+    # Simular creación manual
+    s.speech_bubble = CyberSpeechBubble()
+    s.speech_bubble.show_message(
+        text="Prueba de integración del bocadillo táctico.",
+        pos_x=s.pos_x, pos_y=s.pos_y,
+        capri_w=s.win_w, capri_h=s.win_h,
+        screen_w=s.screen_width, screen_h=s.screen_height,
+    )
+    assert s.speech_bubble.isVisible()
+    s.close()
+    assert not s.is_running
+
