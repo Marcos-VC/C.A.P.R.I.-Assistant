@@ -384,16 +384,26 @@ async def test_network_info_execution():
     ip_res = await skill.execute(action="ip")
     assert ip_res["status"] in ("success", "error")
 
-    # 2. Ping (fallback socket o mock)
+    # 2. Ping real o fallback
     from unittest.mock import patch
     with patch.object(skill, "_socket_ping", return_value=15.4):
         ping_res = await skill.execute(action="ping", host="1.1.1.1")
         assert ping_res["status"] == "success"
-        assert "15.4" in str(ping_res) or ping_res.get("latency_ms") == 15.4
+        assert "latency_ms" in ping_res or "raw" in ping_res
 
     # 3. Wi-Fi
     wifi_res = await skill.execute(action="wifi")
     assert wifi_res["status"] in ("success", "error")
+
+@pytest.mark.anyio
+async def test_network_info_ping_socket_fallback():
+    skill = NetworkInfoSkill()
+    from unittest.mock import patch
+    with patch("shutil.which", return_value=None):
+        with patch.object(skill, "_socket_ping", return_value=15.4):
+            ping_res = await skill.execute(action="ping", host="1.1.1.1")
+            assert ping_res["status"] == "success"
+            assert ping_res.get("latency_ms") == 15.4
 
 
 def test_file_manager_gemini_declaration():

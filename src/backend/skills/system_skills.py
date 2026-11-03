@@ -1198,12 +1198,21 @@ class NetworkInfoSkill(BaseSkill):
                             lines = out.decode().strip().splitlines()
                             stat_line = [l for l in lines if "avg" in l or "min/avg" in l]
                             summary = stat_line[0] if stat_line else lines[-1]
+                            latency_ms = None
+                            if "=" in summary and "/" in summary:
+                                parts = summary.split("=")[-1].strip().split("/")
+                                if len(parts) >= 2:
+                                    try:
+                                        latency_ms = round(float(parts[1].replace("ms", "").strip()), 1)
+                                    except ValueError:
+                                        pass
                             return {
                                 "status": "success",
                                 "action": "ping",
                                 "host": host,
                                 "raw": summary,
-                                "message": f"Conexión con {host} activa: {summary}",
+                                "latency_ms": latency_ms,
+                                "message": f"Enlace con {host} activo: latencia media de {latency_ms} ms (nova)." if latency_ms else f"Conexión con {host} activa: {summary}",
                                 "security_level": self.security_level.value
                             }
                     except Exception:

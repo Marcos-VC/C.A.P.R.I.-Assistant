@@ -153,7 +153,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 47 passed in <1.5s (backend API, skills matrix, audio, power, processes, timers/pomodoro, web/weather, network, files, desktop engine, mini-console, speech bubble)
+# → 48 passed in <1.2s (backend API, skills matrix, audio, power, processes, timers/pomodoro, web/weather, network, files, desktop engine, mini-console, speech bubble)
 ```
 
 ---
