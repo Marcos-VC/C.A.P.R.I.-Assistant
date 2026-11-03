@@ -153,7 +153,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 30 passed in <1.8s (backend API, skills matrix, audio, power/battery/brightness, app launcher, desktop animation engine, mini-console, speech bubble)
+# → 40 passed in <1.3s (backend API, skills matrix, audio, power, processes, timers/pomodoro, web/weather, desktop engine, mini-console, speech bubble)
 ```
 
 ---
@@ -191,11 +191,17 @@ pytest
 - [x] Se cierra al hacer clic en él, pulsar `Esc` o botón `[✕]`.
 - [x] Despacho no bloqueante al backend (`/api/v1/chat`) con animación táctica `SCANNING` → `GRINNING`.
 
-### ✅ v0.5 — Control del Sistema y Skills en Ubuntu (COMPLETADO)
-- [x] `AudioControlSkill` para control de volumen, silencio y reactivación mediante PipeWire/PulseAudio (`wpctl`/`pactl`).
-- [x] `AppLauncherSkill`: Lanzador de aplicaciones en Ubuntu (`gtk-launch`/`gio`/binario directo), con tabla de alias en castellano (firefox, terminal, calculadora, spotify…).
+### ✅ v0.5 — Control del Sistema y Automatización en Ubuntu (COMPLETADO)
+- [x] `AudioControlSkill`: Volumen, silencio y reactivación con PipeWire/PulseAudio (`wpctl`/`pactl`).
+- [x] `AppLauncherSkill`: Lanzador de aplicaciones en Ubuntu (`gtk-launch`/`gio`/binario directo) con alias en castellano.
 - [x] `PowerControlSkill`: Gestión de energía y batería (porcentaje, estado de carga AC/BAT), control de brillo (`intel_backlight`/GNOME Power) y bloqueo de pantalla (`loginctl`).
-- [ ] `ProcessManagerSkill`: Monitoreo y gestión de procesos que consumen recursos (con confirmación `CONFIRM_REQUIRED`).
+- [x] `ProcessManagerSkill`: Monitoreo y gestión de procesos (top CPU, top RAM, búsqueda y terminación segura con confirmación `CONFIRM_REQUIRED`).
+- [x] `TimerReminderSkill`: Temporizadores, Pomodoro y recordatorios con notificaciones nativas de escritorio (`notify-send`).
+- [x] `WebLookupSkill`: Pronóstico meteorológico en tiempo real (`wttr.in`) y búsquedas de conocimiento rápido.
+
+### ✅ v0.8 — Empaquetado y Lanzador Unificado (COMPLETADO)
+- [x] Script `run.sh` unificado: arranca el backend FastAPI en segundo plano si no está activo, lanza el Shimeji gráfico y limpia los procesos al cerrar.
+- [x] Acceso directo `.desktop` (`capri.desktop`) para lanzar C.A.P.R.I. desde el dock o menú de aplicaciones de Ubuntu GNOME.
 
 ### 🔴 v0.7 — WebSocket Streaming
 - [ ] Endpoint `@app.websocket("/ws/chat")` para streaming de tokens en tiempo real.

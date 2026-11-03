@@ -2,6 +2,10 @@ import asyncio
 import os
 import glob
 import shutil
+import time
+import json
+import urllib.request
+import urllib.parse
 from typing import Dict, Any, Optional, List
 from google.genai import types
 from src.backend.skills.base import BaseSkill, SecurityLevel
@@ -630,6 +634,500 @@ class PowerControlSkill(BaseSkill):
             return {
                 "status": "error",
                 "message": f"[SYSTEM ERROR]: Error en PowerControlSkill -> {str(e)}",
+                "security_level": self.security_level.value
+            }
+
+
+class ProcessManagerSkill(BaseSkill):
+    """
+    Habilidad táctica para supervisar y gestionar procesos en ejecución en Ubuntu Linux.
+    Permite consultar los procesos que más CPU ('top_cpu') o memoria RAM ('top_ram') consumen,
+    buscar procesos por nombre ('find') y finalizar procesos ('kill').
+    Nivel de seguridad: SAFE para lectura, con confirmación requerida internamente para 'kill'.
+    """
+    name = "process_manager"
+    description = (
+        "Supervisa y administra procesos del sistema en Ubuntu. "
+        "Permite listar los procesos con mayor uso de CPU ('top_cpu') o memoria ('top_ram'), "
+        "buscar procesos por nombre ('find') y terminar un proceso por PID ('kill')."
+    )
+    security_level = SecurityLevel.SAFE
+
+    def get_parameters_schema(self) -> types.Schema:
+        return types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "action": types.Schema(
+                    type=types.Type.STRING,
+                    description="Acción a realizar: 'top_cpu' (procesos con más CPU), 'top_ram' (procesos con más RAM), 'find' (buscar por nombre), 'kill' (terminar proceso).",
+                    enum=["top_cpu", "top_ram", "find", "kill"]
+                ),
+                "query": types.Schema(
+                    type=types.Type.STRING,
+                    description="Término o nombre de proceso a buscar (para action='find' o 'kill')."
+                ),
+                "pid": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="PID numérico del proceso a terminar (para action='kill')."
+                ),
+                "confirmed": types.Schema(
+                    type=types.Type.BOOLEAN,
+                    description="Confirmación obligatoria del usuario para matar procesos (action='kill'). Debe ser true si el usuario ha pedido expresamente cerrar o matar la aplicación."
+                )
+            },
+            required=["action"]
+        )
+
+    async def _run_ps(self, sort_by: str, limit: int = 7) -> List[Dict[str, Any]]:
+        proc = await asyncio.create_subprocess_exec(
+            "ps", "-eo", "pid,comm,%cpu,%mem", f"--sort=-{sort_by}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        out, _ = await proc.communicate()
+        lines = out.decode().strip().splitlines()
+        results = []
+        if len(lines) > 1:
+            for line in lines[1:limit + 1]:
+                parts = line.split()
+                if len(parts) >= 4:
+                    results.append({
+                        "pid": int(parts[0]),
+                        "command": parts[1],
+                        "cpu_percent": parts[2],
+                        "mem_percent": parts[3]
+                    })
+        return results
+
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        action = kwargs.get("action", "top_cpu").lower().strip()
+        query = kwargs.get("query", "").strip()
+        pid = kwargs.get("pid")
+        confirmed = kwargs.get("confirmed", False)
+
+        try:
+            # 1. TOP CPU
+            if action == "top_cpu":
+                processes = await self._run_ps("%cpu")
+                summary_lines = [f"• PID {p['pid']} ({p['command']}): CPU {p['cpu_percent']}% | RAM {p['mem_percent']}%" for p in processes]
+                msg = "Procesos con mayor uso de CPU:\n" + "\n".join(summary_lines)
+                return {
+                    "status": "success",
+                    "action": "top_cpu",
+                    "processes": processes,
+                    "message": msg,
+                    "security_level": self.security_level.value
+                }
+
+            # 2. TOP RAM
+            elif action == "top_ram":
+                processes = await self._run_ps("%mem")
+                summary_lines = [f"• PID {p['pid']} ({p['command']}): RAM {p['mem_percent']}% | CPU {p['cpu_percent']}%" for p in processes]
+                msg = "Procesos con mayor uso de Memoria RAM:\n" + "\n".join(summary_lines)
+                return {
+                    "status": "success",
+                    "action": "top_ram",
+                    "processes": processes,
+                    "message": msg,
+                    "security_level": self.security_level.value
+                }
+
+            # 3. BUSCAR PROCESOS
+            elif action == "find":
+                if not query:
+                    return {"status": "error", "message": "Debes especificar 'query' con el nombre del proceso a buscar."}
+                proc = await asyncio.create_subprocess_exec(
+                    "ps", "-eo", "pid,comm,%cpu,%mem",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                out, _ = await proc.communicate()
+                matches = []
+                for line in out.decode().strip().splitlines()[1:]:
+                    parts = line.split()
+                    if len(parts) >= 4 and query.lower() in parts[1].lower():
+                        matches.append({
+                            "pid": int(parts[0]),
+                            "command": parts[1],
+                            "cpu_percent": parts[2],
+                            "mem_percent": parts[3]
+                        })
+                if matches:
+                    summary_lines = [f"• PID {p['pid']} ({p['command']}): CPU {p['cpu_percent']}% | RAM {p['mem_percent']}%" for p in matches[:8]]
+                    msg = f"Se encontraron {len(matches)} proceso(s) para '{query}':\n" + "\n".join(summary_lines)
+                    return {"status": "success", "action": "find", "query": query, "matches": matches, "message": msg}
+                return {"status": "success", "action": "find", "query": query, "matches": [], "message": f"No se encontró ningún proceso activo que coincida con '{query}'."}
+
+            # 4. TERMINAR PROCESO (KILL)
+            elif action == "kill":
+                # Si no se pasó PID pero sí query, intentar resolverlo
+                target_pid = pid
+                target_name = query
+                if not target_pid and query:
+                    # Buscar el PID de ese proceso
+                    proc = await asyncio.create_subprocess_exec("pgrep", "-f", query, stdout=asyncio.subprocess.PIPE)
+                    pout, _ = await proc.communicate()
+                    pids = [int(p) for p in pout.decode().split() if p.isdigit()]
+                    if pids:
+                        target_pid = pids[0]
+                    else:
+                        return {"status": "error", "message": f"No se encontró ningún proceso activo con nombre '{query}'."}
+
+                if not target_pid:
+                    return {"status": "error", "message": "Debes especificar el 'pid' numérico o el nombre 'query' del proceso a terminar."}
+
+                # Protección: evitar matar PID 1 o procesos del sistema crítico
+                if target_pid <= 1:
+                    return {"status": "blocked", "message": f"[SEGURIDAD]: Prohibido terminar el proceso crítico PID {target_pid}."}
+
+                # Verificación de confirmación de seguridad
+                if not confirmed:
+                    return {
+                        "status": "confirmation_required",
+                        "security_level": SecurityLevel.CONFIRM_REQUIRED.value,
+                        "pid": target_pid,
+                        "query": target_name,
+                        "message": f"⚠️ [CONFIRMACIÓN REQUERIDA]: ¿Confirmas terminar el proceso PID {target_pid} ({target_name or 'proceso'})? Responde afirmativamente para proceder."
+                    }
+
+                # Ejecutar SIGTERM primero
+                kproc = await asyncio.create_subprocess_exec(
+                    "kill", "-15", str(target_pid),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                _, kerr = await kproc.communicate()
+                if kproc.returncode == 0:
+                    return {
+                        "status": "success",
+                        "action": "kill",
+                        "pid": target_pid,
+                        "message": f"Proceso PID {target_pid} finalizado correctamente.",
+                        "security_level": self.security_level.value
+                    }
+                return {
+                    "status": "error",
+                    "message": f"Fallo al terminar PID {target_pid}: {kerr.decode().strip() or 'Permiso denegado o proceso inexistente'}"
+                }
+
+            else:
+                return {
+                    "status": "error",
+                    "message": f"Acción desconocida '{action}'. Usa 'top_cpu', 'top_ram', 'find' o 'kill'."
+                }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"[SYSTEM ERROR]: Error en ProcessManagerSkill -> {str(e)}",
+                "security_level": self.security_level.value
+            }
+
+
+class TimerReminderSkill(BaseSkill):
+    """
+    Habilidad táctica para gestionar temporizadores, Pomodoro y alertas en Ubuntu.
+    Al concluir el tiempo, emite una notificación nativa en el escritorio.
+    Nivel de seguridad: SAFE.
+    """
+    name = "timer_reminder"
+    description = (
+        "Configura temporizadores, avisos de productividad (Pomodoro) y recordatorios en el escritorio Ubuntu. "
+        "Permite iniciar un temporizador ('set_timer' con minutos o segundos), "
+        "listar los temporizadores activos ('list') y cancelar un temporizador ('cancel' con timer_id)."
+    )
+    security_level = SecurityLevel.SAFE
+
+    # Almacén en memoria de temporizadores activos en la sesión
+    _active_timers: Dict[str, Dict[str, Any]] = {}
+    _counter: int = 0
+
+    def get_parameters_schema(self) -> types.Schema:
+        return types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "action": types.Schema(
+                    type=types.Type.STRING,
+                    description="Acción a realizar: 'set_timer' (crear cuenta atrás), 'list' (ver activos), 'cancel' (cancelar temporizador).",
+                    enum=["set_timer", "list", "cancel"]
+                ),
+                "minutes": types.Schema(
+                    type=types.Type.NUMBER,
+                    description="Duración del temporizador en minutos (ej: 0.5 para 30s, 15 para 15 minutos, 25 para Pomodoro)."
+                ),
+                "seconds": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Duración adicional o exacta en segundos."
+                ),
+                "label": types.Schema(
+                    type=types.Type.STRING,
+                    description="Motivo o etiqueta del temporizador (ej: 'Descanso Pomodoro', 'Pizza en el horno', 'Revisar servidor')."
+                ),
+                "timer_id": types.Schema(
+                    type=types.Type.STRING,
+                    description="Identificador del temporizador para cancelar (para action='cancel')."
+                )
+            },
+            required=["action"]
+        )
+
+    @classmethod
+    async def _timer_worker(cls, timer_id: str, total_seconds: float, label: str):
+        try:
+            await asyncio.sleep(total_seconds)
+            # Emitir notificación nativa en escritorio Ubuntu si sigue activo
+            if timer_id in cls._active_timers:
+                cls._active_timers.pop(timer_id, None)
+                if shutil.which("notify-send"):
+                    env = os.environ.copy()
+                    if "DISPLAY" not in env:
+                        env["DISPLAY"] = ":0"
+                    try:
+                        await asyncio.create_subprocess_exec(
+                            "notify-send",
+                            "✦ C.A.P.R.I. // ALERTA TÁCTICA",
+                            f"⏰ ¡Tiempo cumplido!: {label}",
+                            "-u", "critical",
+                            "-t", "8000",
+                            env=env
+                        )
+                    except Exception:
+                        pass
+        except asyncio.CancelledError:
+            pass
+
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        action = kwargs.get("action", "set_timer").lower().strip()
+        minutes = kwargs.get("minutes")
+        seconds = kwargs.get("seconds")
+        label = kwargs.get("label", "Alerta táctica de C.A.P.R.I.").strip()
+        timer_id = kwargs.get("timer_id", "").strip()
+
+        try:
+            # 1. CREAR TEMPORIZADOR
+            if action == "set_timer":
+                total_sec = 0.0
+                if minutes is not None:
+                    total_sec += float(minutes) * 60.0
+                if seconds is not None:
+                    total_sec += float(seconds)
+
+                if total_sec <= 0:
+                    return {
+                        "status": "error",
+                        "message": "Debes especificar una duración positiva en 'minutes' o 'seconds'."
+                    }
+
+                TimerReminderSkill._counter += 1
+                t_id = f"T-{TimerReminderSkill._counter}"
+                ends_at = time.time() + total_sec
+
+                task = asyncio.create_task(self._timer_worker(t_id, total_sec, label))
+
+                TimerReminderSkill._active_timers[t_id] = {
+                    "id": t_id,
+                    "label": label,
+                    "duration_sec": total_sec,
+                    "ends_at": ends_at,
+                    "task": task
+                }
+
+                readable_dur = f"{minutes} min" if minutes and not seconds else f"{int(total_sec)} seg"
+                return {
+                    "status": "success",
+                    "action": "set_timer",
+                    "timer_id": t_id,
+                    "duration_sec": total_sec,
+                    "label": label,
+                    "message": f"⏳ Temporizador {t_id} iniciado ({readable_dur}) para: '{label}'. Te avisaré al completarse.",
+                    "security_level": self.security_level.value
+                }
+
+            # 2. LISTAR TEMPORIZADORES
+            elif action == "list":
+                now = time.time()
+                active_list = []
+                for tid, item in list(TimerReminderSkill._active_timers.items()):
+                    rem = max(0, int(item["ends_at"] - now))
+                    active_list.append({
+                        "id": tid,
+                        "label": item["label"],
+                        "remaining_seconds": rem
+                    })
+
+                if not active_list:
+                    return {
+                        "status": "success",
+                        "action": "list",
+                        "timers": [],
+                        "message": "No hay ningún temporizador activo en este momento.",
+                        "security_level": self.security_level.value
+                    }
+
+                lines = [f"• [{t['id']}] {t['label']} (quedan {t['remaining_seconds']}s)" for t in active_list]
+                return {
+                    "status": "success",
+                    "action": "list",
+                    "timers": active_list,
+                    "message": "Temporizadores activos:\n" + "\n".join(lines),
+                    "security_level": self.security_level.value
+                }
+
+            # 3. CANCELAR TEMPORIZADOR
+            elif action == "cancel":
+                if not timer_id:
+                    return {"status": "error", "message": "Debes especificar el 'timer_id' a cancelar (ej: 'T-1')."}
+
+                timer_entry = TimerReminderSkill._active_timers.pop(timer_id, None)
+                if timer_entry:
+                    task = timer_entry.get("task")
+                    if task and not task.done():
+                        task.cancel()
+                    return {
+                        "status": "success",
+                        "action": "cancel",
+                        "timer_id": timer_id,
+                        "message": f"Temporizador {timer_id} cancelado correctamente.",
+                        "security_level": self.security_level.value
+                    }
+                return {
+                    "status": "error",
+                    "message": f"No se encontró ningún temporizador activo con ID '{timer_id}'."
+                }
+
+            else:
+                return {
+                    "status": "error",
+                    "message": f"Acción desconocida '{action}'. Usa 'set_timer', 'list' o 'cancel'."
+                }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"[SYSTEM ERROR]: Error en TimerReminderSkill -> {str(e)}",
+                "security_level": self.security_level.value
+            }
+
+
+class WebLookupSkill(BaseSkill):
+    """
+    Habilidad para consultas meteorológicas en tiempo real y resúmenes web concisos.
+    Nivel de seguridad: SAFE.
+    """
+    name = "web_lookup"
+    description = (
+        "Consulta información en tiempo real desde la web: "
+        "clima meteorológico actual de cualquier ciudad ('weather') o resúmenes enciclopédicos rápidos ('search')."
+    )
+    security_level = SecurityLevel.SAFE
+
+    def get_parameters_schema(self) -> types.Schema:
+        return types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "action": types.Schema(
+                    type=types.Type.STRING,
+                    description="Acción: 'weather' (pronóstico del tiempo), 'search' (resumen de conocimiento o definición).",
+                    enum=["weather", "search"]
+                ),
+                "location": types.Schema(
+                    type=types.Type.STRING,
+                    description="Nombre de la ciudad o localidad (para action='weather', ej: 'Madrid', 'Barcelona', 'Buenos Aires')."
+                ),
+                "query": types.Schema(
+                    type=types.Type.STRING,
+                    description="Término o concepto a consultar (para action='search', ej: 'Kernel Linux', 'Wayland vs X11')."
+                )
+            },
+            required=["action"]
+        )
+
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        action = kwargs.get("action", "weather").lower().strip()
+        location = kwargs.get("location", "Madrid").strip()
+        query = kwargs.get("query", "").strip()
+
+        try:
+            # 1. CONSULTA DE CLIMA METEOROLÓGICO
+            if action == "weather":
+                loc_encoded = urllib.parse.quote(location)
+                url = f"https://wttr.in/{loc_encoded}?format=%C:+%t+(sensaci%C3%B3n+%f),+humedad+%h,+viento+%w"
+
+                def _fetch_weather():
+                    req = urllib.request.Request(
+                        url,
+                        headers={"User-Agent": "curl/7.88.1"}  # wttr.in detecta curl y devuelve texto limpio
+                    )
+                    with urllib.request.urlopen(req, timeout=3.5) as r:
+                        return r.read().decode("utf-8").strip()
+
+                try:
+                    report = await asyncio.to_thread(_fetch_weather)
+                    return {
+                        "status": "success",
+                        "action": "weather",
+                        "location": location,
+                        "report": report,
+                        "message": f"Clima actual en {location}:\n🌦️ {report}",
+                        "security_level": self.security_level.value
+                    }
+                except Exception as net_err:
+                    return {
+                        "status": "error",
+                        "message": f"No se pudo contactar con el servicio meteorológico para '{location}': {str(net_err)}"
+                    }
+
+            # 2. BÚSQUEDA RÁPIDA / WIKIPEDIA
+            elif action == "search":
+                if not query:
+                    return {"status": "error", "message": "Debes especificar 'query' para realizar una búsqueda."}
+
+                def _fetch_summary():
+                    q_enc = urllib.parse.quote(query)
+                    # Consultar API REST de Wikipedia en español
+                    url = f"https://es.wikipedia.org/api/rest_v1/page/summary/{q_enc}"
+                    req = urllib.request.Request(
+                        url,
+                        headers={"User-Agent": "CapriAssistant/2.0 (linux; x86_64)"}
+                    )
+                    with urllib.request.urlopen(req, timeout=3.5) as r:
+                        data = json.loads(r.read().decode("utf-8"))
+                        title = data.get("title", query)
+                        extract = data.get("extract", "")
+                        return title, extract
+
+                try:
+                    title, extract = await asyncio.to_thread(_fetch_summary)
+                    if extract:
+                        return {
+                            "status": "success",
+                            "action": "search",
+                            "title": title,
+                            "summary": extract,
+                            "message": f"Información sobre '{title}':\n{extract}",
+                            "security_level": self.security_level.value
+                        }
+                    return {
+                        "status": "success",
+                        "action": "search",
+                        "message": f"No se encontró un artículo directo para '{query}'."
+                    }
+                except Exception as net_err:
+                    return {
+                        "status": "error",
+                        "message": f"Fallo al conectar con la base de conocimiento para '{query}': {str(net_err)}"
+                    }
+
+            else:
+                return {
+                    "status": "error",
+                    "message": f"Acción desconocida '{action}'. Usa 'weather' o 'search'."
+                }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"[SYSTEM ERROR]: Error en WebLookupSkill -> {str(e)}",
                 "security_level": self.security_level.value
             }
 

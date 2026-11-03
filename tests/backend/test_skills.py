@@ -226,3 +226,137 @@ async def test_power_control_lock_mock():
         assert "bloqueada" in res["message"]
 
 
+from src.backend.skills.system_skills import ProcessManagerSkill
+
+def test_process_manager_gemini_declaration():
+    skill = ProcessManagerSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "process_manager"
+    assert "action" in decl.parameters.properties
+
+@pytest.mark.anyio
+async def test_process_manager_top_cpu_and_ram():
+    skill = ProcessManagerSkill()
+    cpu_res = await skill.execute(action="top_cpu")
+    assert cpu_res["status"] == "success"
+    assert "processes" in cpu_res
+
+    ram_res = await skill.execute(action="top_ram")
+    assert ram_res["status"] == "success"
+    assert "processes" in ram_res
+
+@pytest.mark.anyio
+async def test_process_manager_find():
+    skill = ProcessManagerSkill()
+    # Find bash or python or something that is running
+    res = await skill.execute(action="find", query="python")
+    assert res["status"] == "success"
+
+@pytest.mark.anyio
+async def test_process_manager_kill_confirmation_and_blocks():
+    skill = ProcessManagerSkill()
+    # Critical PID 1 blocked
+    blocked = await skill.execute(action="kill", pid=1, confirmed=True)
+    assert blocked["status"] == "blocked"
+
+    # Kill without confirmed flag requires confirmation
+    unconfirmed = await skill.execute(action="kill", pid=99999, confirmed=False)
+    assert unconfirmed["status"] == "confirmation_required"
+
+@pytest.mark.anyio
+async def test_process_manager_kill_mocked_success():
+    skill = ProcessManagerSkill()
+    from unittest.mock import patch
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+        mock_exec.return_value = mock_proc
+
+        res = await skill.execute(action="kill", pid=12345, confirmed=True)
+        assert res["status"] == "success"
+        assert "finalizado" in res["message"]
+
+
+from src.backend.skills.system_skills import TimerReminderSkill, WebLookupSkill
+
+def test_timer_reminder_gemini_declaration():
+    skill = TimerReminderSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "timer_reminder"
+    assert "action" in decl.parameters.properties
+
+@pytest.mark.anyio
+async def test_timer_reminder_workflow():
+    skill = TimerReminderSkill()
+
+    # 1. Invalid duration
+    err = await skill.execute(action="set_timer", minutes=0, seconds=0)
+    assert err["status"] == "error"
+
+    # 2. Create timer for 10 seconds (Pomodoro)
+    set_res = await skill.execute(action="set_timer", seconds=10, label="Pausa café")
+    assert set_res["status"] == "success"
+    timer_id = set_res["timer_id"]
+    assert "T-" in timer_id
+
+    # 3. List active timers
+    list_res = await skill.execute(action="list")
+    assert list_res["status"] == "success"
+    assert len(list_res["timers"]) >= 1
+
+    # 4. Cancel timer
+    cancel_res = await skill.execute(action="cancel", timer_id=timer_id)
+    assert cancel_res["status"] == "success"
+
+    # Cancel nonexistent
+    cancel_err = await skill.execute(action="cancel", timer_id="T-99999")
+    assert cancel_err["status"] == "error"
+
+
+def test_web_lookup_gemini_declaration():
+    skill = WebLookupSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "web_lookup"
+    assert "action" in decl.parameters.properties
+
+@pytest.mark.anyio
+async def test_web_lookup_weather_mocked():
+    skill = WebLookupSkill()
+    from unittest.mock import patch
+
+    with patch("urllib.request.urlopen") as mock_url:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"Despejado: +21C (sensacion +21C), humedad 40%, viento 10km/h"
+        mock_resp.__enter__.return_value = mock_resp
+        mock_url.return_value = mock_resp
+
+        res = await skill.execute(action="weather", location="Madrid")
+        assert res["status"] == "success"
+        assert "Despejado" in res["report"]
+        assert "Madrid" in res["message"]
+
+@pytest.mark.anyio
+async def test_web_lookup_search_mocked():
+    skill = WebLookupSkill()
+    from unittest.mock import patch
+    import json
+
+    mock_wiki = json.dumps({
+        "title": "Python (lenguaje de programación)",
+        "extract": "Python es un lenguaje de programación de alto nivel multiparadigma."
+    }).encode("utf-8")
+
+    with patch("urllib.request.urlopen") as mock_url:
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = mock_wiki
+        mock_resp.__enter__.return_value = mock_resp
+        mock_url.return_value = mock_resp
+
+        res = await skill.execute(action="search", query="Python")
+        assert res["status"] == "success"
+        assert "multiparadigma" in res["summary"]
+
+
+
+

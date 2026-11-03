@@ -2,7 +2,15 @@ import logging
 from typing import Dict, Optional, List, Any
 from google.genai import types
 from src.backend.skills.base import BaseSkill, SecurityLevel
-from src.backend.skills.system_skills import SystemMonitorSkill, AudioControlSkill, AppLauncherSkill, PowerControlSkill
+from src.backend.skills.system_skills import (
+    SystemMonitorSkill,
+    AudioControlSkill,
+    AppLauncherSkill,
+    PowerControlSkill,
+    ProcessManagerSkill,
+    TimerReminderSkill,
+    WebLookupSkill,
+)
 
 logger = logging.getLogger("capri.skills")
 
@@ -91,5 +99,8 @@ def get_skill_registry() -> SkillRegistry:
         _default_registry.register(AudioControlSkill())
         _default_registry.register(AppLauncherSkill())
         _default_registry.register(PowerControlSkill())
+        _default_registry.register(ProcessManagerSkill())
+        _default_registry.register(TimerReminderSkill())
+        _default_registry.register(WebLookupSkill())
     return _default_registry
 

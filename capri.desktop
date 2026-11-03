@@ -1,0 +1,15 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=C.A.P.R.I. Assistant
+Comment=Cybernetic Autonomously Programmed Response Interface (Desktop Companion)
+Exec=/home/marcosvc/capri-assistant/run.sh
+Icon=/home/marcosvc/capri-assistant/src/desktop/assets/capri.png
+Terminal=false
+Categories=Utility;Assistant;
+StartupNotify=true
+Actions=OpenHUD;
+
+[Desktop Action OpenHUD]
+Name=Abrir C.A.P.R.I. HUD Web
+Exec=xdg-open http://127.0.0.1:8000
