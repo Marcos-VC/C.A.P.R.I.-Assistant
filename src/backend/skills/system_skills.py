@@ -393,3 +393,243 @@ class AppLauncherSkill(BaseSkill):
             "message": f"No se encontró la aplicación '{app_name}' en los registros de escritorio (.desktop) ni en el PATH del sistema."
         }
 
+
+class PowerControlSkill(BaseSkill):
+    """
+    Habilidad táctica para gestionar energía, batería, brillo de pantalla y bloqueo de sesión en Ubuntu.
+    Permite consultar batería ('battery'), consultar o ajustar brillo ('get_brightness', 'set_brightness')
+    y bloquear la pantalla del escritorio ('lock').
+    Nivel de seguridad: SAFE.
+    """
+    name = "power_control"
+    description = (
+        "Gestiona la energía, batería, brillo de pantalla y bloqueo de sesión en Ubuntu Linux. "
+        "Permite consultar el estado y porcentaje de batería ('battery'), "
+        "consultar el brillo actual ('get_brightness'), ajustar el nivel de brillo de 0 a 100% ('set_brightness') "
+        "y bloquear la pantalla del escritorio ('lock')."
+    )
+    security_level = SecurityLevel.SAFE
+
+    def get_parameters_schema(self) -> types.Schema:
+        return types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "action": types.Schema(
+                    type=types.Type.STRING,
+                    description="Acción a realizar: 'battery' (estado batería), 'get_brightness' (consultar brillo), 'set_brightness' (ajustar brillo 0-100%), 'lock' (bloquear pantalla).",
+                    enum=["battery", "get_brightness", "set_brightness", "lock"]
+                ),
+                "level": types.Schema(
+                    type=types.Type.INTEGER,
+                    description="Nivel de brillo en porcentaje de 0 a 100 (requerido únicamente para action='set_brightness')."
+                )
+            },
+            required=["action"]
+        )
+
+    def _read_battery_sysfs(self) -> Optional[Dict[str, Any]]:
+        base_dir = "/sys/class/power_supply"
+        if not os.path.isdir(base_dir):
+            return None
+        bats = [d for d in os.listdir(base_dir) if d.startswith("BAT")]
+        if not bats:
+            return None
+        bat_path = os.path.join(base_dir, bats[0])
+        cap_file = os.path.join(bat_path, "capacity")
+        stat_file = os.path.join(bat_path, "status")
+        if os.path.exists(cap_file):
+            try:
+                with open(cap_file, "r") as f:
+                    cap = int(f.read().strip())
+                status = "Desconocido"
+                if os.path.exists(stat_file):
+                    with open(stat_file, "r") as f:
+                        status = f.read().strip()
+                return {"percent": cap, "status": status, "device": bats[0]}
+            except Exception:
+                pass
+        return None
+
+    def _read_brightness_sysfs(self) -> Optional[int]:
+        base_dir = "/sys/class/backlight"
+        if not os.path.isdir(base_dir):
+            return None
+        controllers = os.listdir(base_dir)
+        if not controllers:
+            return None
+        ctrl_path = os.path.join(base_dir, controllers[0])
+        b_file = os.path.join(ctrl_path, "brightness")
+        mb_file = os.path.join(ctrl_path, "max_brightness")
+        if os.path.exists(b_file) and os.path.exists(mb_file):
+            try:
+                with open(b_file, "r") as f:
+                    curr = float(f.read().strip())
+                with open(mb_file, "r") as f:
+                    mx = float(f.read().strip())
+                if mx > 0:
+                    return int(round((curr / mx) * 100))
+            except Exception:
+                pass
+        return None
+
+    async def execute(self, **kwargs) -> Dict[str, Any]:
+        action = kwargs.get("action", "battery").lower().strip()
+        level = kwargs.get("level")
+
+        try:
+            # 1. ESTADO DE BATERÍA
+            if action == "battery":
+                data = self._read_battery_sysfs()
+                if data:
+                    pct = data["percent"]
+                    st = data["status"]
+                    icon = "🔌" if "charg" in st.lower() else "🔋"
+                    return {
+                        "status": "success",
+                        "action": "battery",
+                        "battery_percent": pct,
+                        "charging_status": st,
+                        "message": f"{icon} Batería al {pct}% [{st}].",
+                        "security_level": self.security_level.value
+                    }
+                # Fallback con upower
+                if shutil.which("upower"):
+                    proc = await asyncio.create_subprocess_exec(
+                        "upower", "-e",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    out, _ = await proc.communicate()
+                    devices = [line.strip() for line in out.decode().splitlines() if "battery" in line]
+                    if devices:
+                        iproc = await asyncio.create_subprocess_exec(
+                            "upower", "-i", devices[0],
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        iout, _ = await iproc.communicate()
+                        return {
+                            "status": "success",
+                            "action": "battery",
+                            "raw_info": iout.decode().strip(),
+                            "message": "Información de energía recuperada vía UPower.",
+                            "security_level": self.security_level.value
+                        }
+
+                return {
+                    "status": "success",
+                    "action": "battery",
+                    "message": "No se detectó batería conectada (sistema sobre alimentación directa AC).",
+                    "security_level": self.security_level.value
+                }
+
+            # 2. CONSULTAR BRILLO
+            elif action == "get_brightness":
+                val = self._read_brightness_sysfs()
+                if val is not None:
+                    return {
+                        "status": "success",
+                        "action": "get_brightness",
+                        "brightness_percent": val,
+                        "message": f"Nivel de brillo actual: {val}%.",
+                        "security_level": self.security_level.value
+                    }
+                return {
+                    "status": "error",
+                    "message": "No se pudo leer el sensor de brillo de pantalla en /sys/class/backlight."
+                }
+
+            # 3. AJUSTAR BRILLO
+            elif action == "set_brightness":
+                if level is None:
+                    return {
+                        "status": "error",
+                        "message": "Debes especificar el parámetro 'level' (0-100) para ajustar el brillo."
+                    }
+                target_level = max(5, min(100, int(level)))
+
+                # 1) Probar gdbus con org.gnome.SettingsDaemon.Power
+                gdbus_bin = shutil.which("gdbus")
+                if gdbus_bin:
+                    try:
+                        proc = await asyncio.create_subprocess_exec(
+                            "gdbus", "call", "--session",
+                            "--dest", "org.gnome.SettingsDaemon.Power",
+                            "--object-path", "/org/gnome/SettingsDaemon/Power",
+                            "--method", "org.freedesktop.DBus.Properties.Set",
+                            "org.gnome.SettingsDaemon.Power.Screen", "Brightness",
+                            f"<int32 {target_level}>",
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        await proc.communicate()
+                        if proc.returncode == 0:
+                            return {
+                                "status": "success",
+                                "action": "set_brightness",
+                                "brightness_percent": target_level,
+                                "message": f"Brillo ajustado al {target_level}% vía GNOME Power.",
+                                "security_level": self.security_level.value
+                            }
+                    except Exception:
+                        pass
+
+                # 2) Fallback con brightnessctl
+                if shutil.which("brightnessctl"):
+                    try:
+                        proc = await asyncio.create_subprocess_exec(
+                            "brightnessctl", "set", f"{target_level}%",
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        await proc.communicate()
+                        if proc.returncode == 0:
+                            return {
+                                "status": "success",
+                                "action": "set_brightness",
+                                "brightness_percent": target_level,
+                                "message": f"Brillo ajustado al {target_level}% vía brightnessctl.",
+                                "security_level": self.security_level.value
+                            }
+                    except Exception:
+                        pass
+
+                return {
+                    "status": "error",
+                    "message": f"No se pudo modificar el brillo al {target_level}%. Instala 'brightnessctl' o verifica la sesión GNOME."
+                }
+
+            # 4. BLOQUEAR PANTALLA
+            elif action == "lock":
+                lock_bin = shutil.which("loginctl")
+                if lock_bin:
+                    proc = await asyncio.create_subprocess_exec(
+                        "loginctl", "lock-session",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    await proc.communicate()
+                    return {
+                        "status": "success",
+                        "action": "lock",
+                        "message": "🔒 Pantalla de escritorio bloqueada.",
+                        "security_level": self.security_level.value
+                    }
+                return {
+                    "status": "error",
+                    "message": "No se encontró el comando 'loginctl' para bloquear la sesión."
+                }
+
+            else:
+                return {
+                    "status": "error",
+                    "message": f"Acción desconocida '{action}'. Usa 'battery', 'get_brightness', 'set_brightness' o 'lock'."
+                }
+
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"[SYSTEM ERROR]: Error en PowerControlSkill -> {str(e)}",
+                "security_level": self.security_level.value
+            }
+

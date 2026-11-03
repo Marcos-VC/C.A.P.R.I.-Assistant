@@ -153,7 +153,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 26 passed in <1.1s (backend API, skills matrix, audio control, app launcher, desktop animation engine, mini-console, speech bubble)
+# → 30 passed in <1.8s (backend API, skills matrix, audio, power/battery/brightness, app launcher, desktop animation engine, mini-console, speech bubble)
 ```
 
 ---
@@ -194,6 +194,7 @@ pytest
 ### ✅ v0.5 — Control del Sistema y Skills en Ubuntu (COMPLETADO)
 - [x] `AudioControlSkill` para control de volumen, silencio y reactivación mediante PipeWire/PulseAudio (`wpctl`/`pactl`).
 - [x] `AppLauncherSkill`: Lanzador de aplicaciones en Ubuntu (`gtk-launch`/`gio`/binario directo), con tabla de alias en castellano (firefox, terminal, calculadora, spotify…).
+- [x] `PowerControlSkill`: Gestión de energía y batería (porcentaje, estado de carga AC/BAT), control de brillo (`intel_backlight`/GNOME Power) y bloqueo de pantalla (`loginctl`).
 - [ ] `ProcessManagerSkill`: Monitoreo y gestión de procesos que consumen recursos (con confirmación `CONFIRM_REQUIRED`).
 
 ### 🔴 v0.7 — WebSocket Streaming

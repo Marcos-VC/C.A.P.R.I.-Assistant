@@ -183,3 +183,46 @@ async def test_app_launcher_mocked_success():
         assert res["status"] == "success"
         assert res["desktop_id"] == "org.gnome.Calculator"
 
+
+from src.backend.skills.system_skills import PowerControlSkill
+
+def test_power_control_gemini_declaration():
+    skill = PowerControlSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "power_control"
+    assert "action" in decl.parameters.properties
+
+@pytest.mark.anyio
+async def test_power_control_battery():
+    skill = PowerControlSkill()
+    # Test real execution on HP laptop or mocked fallback
+    res = await skill.execute(action="battery")
+    assert res["status"] == "success"
+    assert res["action"] == "battery"
+    assert "message" in res
+
+@pytest.mark.anyio
+async def test_power_control_brightness():
+    skill = PowerControlSkill()
+    res = await skill.execute(action="get_brightness")
+    # In Linux laptop with intel_backlight, this should return success and integer
+    assert res["status"] in ("success", "error")
+
+    # Test set_brightness missing level
+    bad_res = await skill.execute(action="set_brightness")
+    assert bad_res["status"] == "error"
+
+@pytest.mark.anyio
+async def test_power_control_lock_mock():
+    skill = PowerControlSkill()
+    from unittest.mock import patch
+    with patch("asyncio.create_subprocess_exec") as mock_exec:
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+        mock_exec.return_value = mock_proc
+        res = await skill.execute(action="lock")
+        assert res["status"] == "success"
+        assert "bloqueada" in res["message"]
+
+
