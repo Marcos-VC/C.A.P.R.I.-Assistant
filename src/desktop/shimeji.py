@@ -435,6 +435,7 @@ class CapriShimeji(QWidget):
             self.menu.addAction(a)
 
         act("💬 Enviar directiva...", self.open_console)
+        act("🎤 Mute/Unmute Micrófono ('Oye Capri')", self.toggle_voice_mute)
         act("⚡ Abrir C.A.P.R.I. HUD", self.open_hud)
         act("📊 Telemetría del Sistema", self.query_system_status)
         act("📸 Captura Óptica (Kiroshi)", lambda: self.send_directive("Toma una captura de pantalla"))
@@ -744,6 +745,25 @@ class CapriShimeji(QWidget):
                 self.show_dialog("Error de enlace")
 
         threading.Thread(target=_query, daemon=True).start()
+
+    def toggle_voice_mute(self):
+        """Alterna el estado de silencio del micrófono en el backend de C.A.P.R.I."""
+        def _toggle():
+            try:
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8000/api/v1/voice/toggle_mute",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json", "User-Agent": "Capri-Shimeji/2.0"}
+                )
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    data = json.loads(resp.read().decode())
+                    is_muted = data.get("is_muted", True)
+                    msg = "🎤 Mic: SILENCIADO" if is_muted else "🎤 Mic: ESCUCHANDO ('Oye Capri')"
+                    QTimer.singleShot(0, lambda m=msg: self.show_dialog(m, duration=240))
+            except Exception:
+                QTimer.singleShot(0, lambda: self.show_dialog("Error enlace voz", duration=200))
+
+        threading.Thread(target=_toggle, daemon=True).start()
 
     # ── Bucle de juego ────────────────────────────────────────────────────────
     def game_loop(self):

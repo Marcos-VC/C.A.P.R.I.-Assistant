@@ -51,6 +51,26 @@
             border-radius: 4px;
         }
 
+        .voice-btn {
+            background: rgba(255, 0, 85, 0.2);
+            color: #ff0055;
+            border: 1px solid #ff0055;
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-family: var(--font-family);
+            font-size: 0.75rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .voice-btn.active {
+            background: rgba(0, 255, 102, 0.2);
+            color: #00ff66;
+            border-color: #00ff66;
+            box-shadow: 0 0 10px rgba(0, 255, 102, 0.4);
+        }
+
         .main-container {
             display: grid;
             grid-template-columns: 1fr 300px;
@@ -179,7 +199,10 @@
 
     <header>
         <h1>🤖 C.A.P.R.I. // SYSTEM_HUD</h1>
-        <div class="status-badge" id="statusBadge">CONECTANDO WEBSOCKET...</div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button id="voiceBtn" class="voice-btn" onclick="toggleVoiceMute()">🎤 MIC: SILENCIADO</button>
+            <div class="status-badge" id="statusBadge">CONECTANDO WEBSOCKET...</div>
+        </div>
     </header>
 
     <div class="main-container">
@@ -332,7 +355,117 @@
             }
         }
 
-        window.addEventListener('load', initWebSocket);
+        // ── CONTROL DE VOZ Y WAKE WORD ("Oye Capri") ────────────────────────
+        let isVoiceMuted = true;
+        let speechRecognizer = null;
+
+        async function initVoiceState() {
+            try {
+                const res = await fetch('/api/v1/voice/status');
+                const data = await res.json();
+                isVoiceMuted = data.is_muted;
+                updateVoiceBtnUI();
+                if (!isVoiceMuted) startSpeechRecognition();
+            } catch (e) {
+                console.warn("No se pudo sincronizar estado de voz inicial:", e);
+            }
+        }
+
+        async function toggleVoiceMute() {
+            try {
+                const res = await fetch('/api/v1/voice/toggle_mute', { method: 'POST' });
+                const data = await res.json();
+                isVoiceMuted = data.is_muted;
+                updateVoiceBtnUI();
+                if (!isVoiceMuted) {
+                    startSpeechRecognition();
+                } else {
+                    stopSpeechRecognition();
+                }
+            } catch (e) {
+                console.error("Error al alternar mute:", e);
+            }
+        }
+
+        function updateVoiceBtnUI() {
+            const btn = document.getElementById('voiceBtn');
+            if (!btn) return;
+            if (isVoiceMuted) {
+                btn.className = 'voice-btn';
+                btn.innerText = '🎤 MIC: SILENCIADO';
+            } else {
+                btn.className = 'voice-btn active';
+                btn.innerText = '🔴 ESCUCHANDO ("Oye Capri")';
+            }
+        }
+
+        function startSpeechRecognition() {
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRec) {
+                console.warn("Este navegador no soporta Web Speech API nativa.");
+                return;
+            }
+            if (speechRecognizer) {
+                try { speechRecognizer.stop(); } catch(e){}
+            }
+            speechRecognizer = new SpeechRec();
+            speechRecognizer.continuous = true;
+            speechRecognizer.interimResults = false;
+            speechRecognizer.lang = 'es-ES';
+
+            speechRecognizer.onresult = (evt) => {
+                for (let i = evt.resultIndex; i < evt.results.length; ++i) {
+                    if (evt.results[i].isFinal) {
+                        const transcript = evt.results[i][0].transcript.trim();
+                        handleVoiceTranscript(transcript);
+                    }
+                }
+            };
+
+            speechRecognizer.onend = () => {
+                if (!isVoiceMuted) {
+                    setTimeout(() => {
+                        try { speechRecognizer.start(); } catch(e){}
+                    }, 400);
+                }
+            };
+
+            try { speechRecognizer.start(); } catch (e) { console.warn("Reconocimiento ya activo:", e); }
+        }
+
+        function stopSpeechRecognition() {
+            if (speechRecognizer) {
+                try { speechRecognizer.stop(); } catch(e){}
+                speechRecognizer = null;
+            }
+        }
+
+        function handleVoiceTranscript(text) {
+            const lower = text.toLowerCase();
+            const wakePatterns = [/oye capri/i, /hey capri/i, /hola capri/i, /ok capri/i, /^capri\b/i];
+            let matched = false;
+            let command = text;
+
+            for (const p of wakePatterns) {
+                if (p.test(lower)) {
+                    matched = true;
+                    command = text.replace(p, '').replace(/^[\s,;:\.¿\?!]+/, '').trim();
+                    break;
+                }
+            }
+
+            if (matched || !isVoiceMuted) {
+                const finalCmd = command || text;
+                const input = document.getElementById('userInput');
+                input.value = finalCmd;
+                sendMessage();
+            }
+        }
+
+        window.addEventListener('load', () => {
+            initWebSocket();
+            initVoiceState();
+        });
     </script>
 </body>
 </html>

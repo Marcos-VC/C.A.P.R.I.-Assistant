@@ -62,6 +62,7 @@ capri-assistant/
 | Capa | Tecnología | Descripción |
 |:---|:---|:---|
 | **Backend** | FastAPI + Uvicorn | API REST y WebSocket (`/ws/chat`) en el puerto 8000 |
+| **Voz (TTS / STT)** | `edge-tts` + PipeWire + Whisper | Síntesis vocal neuronal bilingüe (ES/EN) con timbre de Capri, wake word 'Oye Capri' y control de Mute |
 | **LLM Cloud** | `google-genai` SDK | `gemini-3.5-flash-lite` (principal) con fallback a `gemini-3.6-flash` y `gemini-3.5-flash` |
 | **Gateway Fallback** | FreeLLMAPI / Groq | Gateway multi-modelo anti-429 (OpenAI-compatible) y respaldo en la nube con Llama 3.3 |
 | **Memoria** | SQLite | Historial de conversaciones por `session_id` |
@@ -70,7 +71,7 @@ capri-assistant/
 | **HUD Web** | HTML5 + CSS3 + JS | Dashboard cyberpunk con streaming WebSocket y fallback REST |
 | **Desktop** | PyQt6 | Ventana 100% transparente, streaming en bocadillo táctico interactivo |
 | **Sprites** | PNG RGBA spritesheets | Animaciones multi-frame de Capri (Edgerunners S2) |
-| **Tests** | pytest + anyio | 73 tests automatizados < 1.8s |
+| **Tests** | pytest + anyio | 83 tests automatizados < 2.0s |
 
 ---
 
@@ -154,7 +155,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 73 passed in <1.8s (backend API, WebSocket streaming, 16 skills matrix, terminal bash runner, clipboard, git assistant, quick notes scratchpad, package manager, screenshot Kiroshi, media control, desktop engine, mini-console, streaming speech bubble)
+# → 83 passed in <2.0s (backend API, WebSocket streaming, Voice TTS/STT, Wake Word 'Oye Capri', 16 skills matrix, bash runner, clipboard, git assistant, quick notes, package manager, screenshot, media control, desktop engine, mini-console, speech bubble)
 ```
 
 ---
@@ -223,6 +224,13 @@ pytest
 - [x] `MediaControlSkill`: Control de reproducción multimedia en Ubuntu (Spotify, navegadores, VLC) con MPRIS / `playerctl`.
 - [x] **Multi-Skill Chaining**: Soporte para ejecución simultánea y secuencial de múltiples herramientas en una sola directiva.
 - [x] Botones de acceso rápido añadidos al HUD Web (`index.html`) y opciones de acción directa al menú del Shimeji.
+
+### ✅ v1.0 — Subsistema Vocal, Wake Word y Bilingüe (COMPLETADO)
+- [x] **Botón de Mute/Unmute**: Control visual directo en el HUD Web (`index.html`) y menú contextual del Shimeji (`shimeji.py`). En estado Mute, el micrófono está 100% inactivo (cero consumo).
+- [x] **Wake Word ("Oye Capri" / "Hey Capri")**: Detección inteligente de palabra clave con extracción limpia de directivas en tiempo real.
+- [x] **Voz Neuronal de Capri**: Síntesis con `edge-tts` modulada con pitch elevado (`+8Hz`) y ritmo rápido (`+5%`) para imitar el timbre juvenil y audaz de Capri (Cyberpunk: Edgerunners).
+- [x] **Bilingüe (Español & English)**: Capacitada para escuchar y hablar en ambos idiomas adaptando automáticamente la voz (`es-ES-ElviraNeural` / `en-US-AnaNeural`) y preservando la jerga de Night City (*choom, preem, nova, ciberware, flatline, kiroshi, chrome, gonzo*).
+- [x] **Reproducción nativa**: Enrutamiento directo por PipeWire y GStreamer (`gst-play-1.0` / `pw-play` / `paplay`).
 
 ---
 

@@ -1,4 +1,5 @@
 import json
+import asyncio
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pathlib import Path
@@ -12,10 +13,11 @@ from src.backend.core.schemas import (
 from src.backend.memory.repository import save_message, get_recent_history
 from src.backend.skills.registry import get_skill_registry
 from src.backend.core.llm import generate_llm_response, stream_llm_response
+from src.backend.voice import get_voice_manager
 
 app = FastAPI(
     title="C.A.P.R.I. Assistant API",
-    version="0.4.0",
+    version="0.5.0",
     description="Cybernetic Autonomously Programmed Response Interface - Backend API"
 )
 
@@ -83,6 +85,9 @@ async def websocket_chat_endpoint(websocket: WebSocket):
             # 3. Persistir la respuesta completa en SQLite
             if full_reply:
                 save_message(session_id=session_id, role="assistant", content=full_reply)
+                vm = get_voice_manager()
+                if not vm.is_muted or payload.get("speak", False):
+                    asyncio.create_task(vm.speak(full_reply))
 
     except WebSocketDisconnect:
         pass
@@ -91,6 +96,33 @@ async def websocket_chat_endpoint(websocket: WebSocket):
             await websocket.send_json({"type": "error", "message": str(e)})
         except Exception:
             pass
+
+@app.get("/api/v1/voice/status")
+def get_voice_status():
+    """Estado actual del subsistema de voz (Mute/Unmute, config y palabras clave)."""
+    return get_voice_manager().get_status()
+
+@app.post("/api/v1/voice/toggle_mute")
+def toggle_voice_mute():
+    """Alterna el estado de silencio del micrófono de C.A.P.R.I."""
+    vm = get_voice_manager()
+    new_state = vm.toggle_mute()
+    return {
+        "status": "success",
+        "is_muted": new_state,
+        "message": "Micrófono silenciado [MUTED]." if new_state else "Micrófono activo [UNMUTED]. Escuchando 'Oye Capri'..."
+    }
+
+@app.post("/api/v1/voice/speak")
+async def trigger_speech(payload: dict):
+    """Sintetiza texto con la voz de Capri y lo reproduce en el sistema."""
+    text = payload.get("text", "").strip()
+    lang = payload.get("lang")
+    if not text:
+        raise HTTPException(status_code=400, detail="El campo 'text' es obligatorio.")
+    vm = get_voice_manager()
+    success = await vm.speak(text, lang=lang)
+    return {"status": "success" if success else "error", "spoken": success}
 
 @app.post("/api/v1/skills/execute", response_model=SkillExecuteResponse)
 async def execute_skill(payload: SkillExecuteRequest):
