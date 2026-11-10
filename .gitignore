@@ -15,3 +15,15 @@ src-tauri/target/
 src/backend/memory/capri_memory.db
 .env
 .backend.pid
+
+# ── C.A.P.R.I. Datos Privados — NUNCA commitear ───────────────────────────────
+# Agenda de contactos WhatsApp (alias → teléfono) — solo local
+contacts.json
+capri_contacts.json
+*.contacts.json
+# Bandeja de notificaciones WhatsApp interceptadas — solo local
+whatsapp_inbox.json
+whatsapp_cache/
+# Directorio completo de datos privados de Capri (fuera del repo de por sí,
+# pero añadido aquí como capa extra de seguridad si alguien lo enlaza)
+.local/share/capri/

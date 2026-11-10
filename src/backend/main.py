@@ -1,5 +1,6 @@
 import json
 import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pathlib import Path
@@ -14,11 +15,23 @@ from src.backend.memory.repository import save_message, get_recent_history
 from src.backend.skills.registry import get_skill_registry
 from src.backend.core.llm import generate_llm_response, stream_llm_response
 from src.backend.voice import get_voice_manager
+from src.backend.skills.whatsapp_dbus_watcher import start_notification_watcher
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Gestión del ciclo de vida del backend: arranque y parada de subsistemas."""
+    # ── Startup ──
+    start_notification_watcher()
+    yield
+    # ── Shutdown ── (el hilo watcher es daemon=True, se detiene solo)
+
 
 app = FastAPI(
     title="C.A.P.R.I. Assistant API",
     version="0.5.0",
-    description="Cybernetic Autonomously Programmed Response Interface - Backend API"
+    description="Cybernetic Autonomously Programmed Response Interface - Backend API",
+    lifespan=lifespan,
 )
 
 @app.get("/", response_class=HTMLResponse)

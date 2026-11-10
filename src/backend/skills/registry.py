@@ -22,6 +22,7 @@ from src.backend.skills.advanced_skills import (
     ScreenshotSkill,
     MediaControlSkill,
 )
+from src.backend.skills.whatsapp_skill import WhatsAppSkill
 
 logger = logging.getLogger("capri.skills")
 
@@ -123,5 +124,7 @@ def get_skill_registry() -> SkillRegistry:
         _default_registry.register(PackageManagerSkill())
         _default_registry.register(ScreenshotSkill())
         _default_registry.register(MediaControlSkill())
+        # Mensajería WhatsApp — privacy-first (contactos locales, sin API externa)
+        _default_registry.register(WhatsAppSkill())
     return _default_registry
 
