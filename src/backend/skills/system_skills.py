@@ -1508,3 +1508,15 @@ class FileManagerSkill(BaseSkill):
                 "security_level": self.security_level.value
             }
 
+# Re-exportar habilidades avanzadas de control y productividad en Ubuntu
+from src.backend.skills.advanced_skills import (
+    BashExecutionSkill,
+    ClipboardSkill,
+    GitAssistantSkill,
+    QuickNotesSkill,
+    PackageManagerSkill,
+    ScreenshotSkill,
+    MediaControlSkill,
+)
+
+

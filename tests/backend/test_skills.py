@@ -102,6 +102,47 @@ async def test_call_gemini_model_function_calling_flow():
     assert mock_models.generate_content.call_count == 2
 
 
+@pytest.mark.anyio
+async def test_call_gemini_model_multiple_simultaneous_function_calls():
+    mock_client = MagicMock()
+    mock_aio = MagicMock()
+    mock_models = MagicMock()
+    mock_client.aio = mock_aio
+    mock_aio.models = mock_models
+
+    fc1 = MagicMock()
+    fc1.name = "system_monitor"
+    fc1.args = {}
+
+    fc2 = MagicMock()
+    fc2.name = "clipboard"
+    fc2.args = {"action": "paste"}
+
+    first_resp = MagicMock()
+    first_resp.function_calls = [fc1, fc2]
+    mock_candidate = MagicMock()
+    mock_candidate.content = types.Content(
+        role="model",
+        parts=[
+            types.Part.from_function_call(name="system_monitor", args={}),
+            types.Part.from_function_call(name="clipboard", args={"action": "paste"})
+        ]
+    )
+    first_resp.candidates = [mock_candidate]
+    first_resp.text = None
+
+    second_resp = MagicMock()
+    second_resp.function_calls = None
+    second_resp.text = "Sistema y portapapeles procesados simultáneamente con éxito."
+
+    mock_models.generate_content = AsyncMock(side_effect=[first_resp, second_resp])
+    contents = [types.Content(role="user", parts=[types.Part.from_text(text="Dime la RAM y el portapapeles")])]
+
+    reply = await _call_gemini_model(mock_client, "gemini-3.5-flash-lite", contents)
+    assert reply == "Sistema y portapapeles procesados simultáneamente con éxito."
+    assert mock_models.generate_content.call_count == 2
+
+
 from src.backend.skills.system_skills import AudioControlSkill
 
 def test_audio_control_gemini_declaration():
@@ -435,6 +476,233 @@ async def test_file_manager_recent():
     res = await skill.execute(action="recent", folder=".")
     assert res["status"] == "success"
     assert "recent_files" in res
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TESTS: NUEVAS HABILIDADES AVANZADAS (v0.9 REAL POWER)
+# ──────────────────────────────────────────────────────────────────────────────
+from src.backend.skills.advanced_skills import (
+    BashExecutionSkill,
+    ClipboardSkill,
+    GitAssistantSkill,
+    QuickNotesSkill,
+    PackageManagerSkill,
+    ScreenshotSkill,
+    MediaControlSkill,
+)
+from src.backend.skills.registry import get_skill_registry
+
+def test_registry_contains_all_16_skills():
+    registry = get_skill_registry()
+    all_skills = registry.list_skills()
+    assert len(all_skills) >= 16
+    names = [s.name for s in all_skills]
+    expected = [
+        "system_monitor", "audio_control", "app_launcher", "power_control",
+        "process_manager", "timer_reminder", "web_lookup", "network_info",
+        "file_manager", "bash_runner", "clipboard", "git_assistant",
+        "quick_notes", "package_manager", "screenshot", "media_control"
+    ]
+    for exp in expected:
+        assert exp in names, f"La skill '{exp}' debe estar registrada"
+
+
+# 1. BASH RUNNER
+def test_bash_runner_declaration():
+    skill = BashExecutionSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "bash_runner"
+    assert "command" in decl.parameters.properties
+
+
+@pytest.mark.anyio
+async def test_bash_runner_safe_command():
+    skill = BashExecutionSkill()
+    res = await skill.execute(command="echo 'preem edgerunner'")
+    assert res["status"] == "success"
+    assert "preem edgerunner" in res["stdout"]
+    assert res["returncode"] == 0
+
+
+@pytest.mark.anyio
+async def test_bash_runner_prohibited():
+    skill = BashExecutionSkill()
+    res = await skill.execute(command="rm -rf /")
+    assert res["status"] == "blocked"
+    assert res["security_level"] == "prohibited"
+
+
+@pytest.mark.anyio
+async def test_bash_runner_unconfirmed():
+    skill = BashExecutionSkill()
+    res = await skill.execute(command="systemctl restart dummy_service", confirmed=False)
+    assert res["status"] == "confirmation_required"
+
+
+# 2. CLIPBOARD
+def test_clipboard_declaration():
+    skill = ClipboardSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "clipboard"
+    assert "action" in decl.parameters.properties
+
+
+@pytest.mark.anyio
+async def test_clipboard_copy_and_paste(tmp_path):
+    skill = ClipboardSkill()
+    skill._FALLBACK_FILE = str(tmp_path / "clip.txt")
+    from unittest.mock import patch
+    # Forzar fallback para reproducibilidad en CI/headless
+    with patch("shutil.which", return_value=None):
+        copy_res = await skill.execute(action="copy", text="Night City 2077")
+        assert copy_res["status"] == "success"
+
+        paste_res = await skill.execute(action="paste")
+        assert paste_res["status"] == "success"
+        assert paste_res["text"] == "Night City 2077"
+
+        clear_res = await skill.execute(action="clear")
+        assert clear_res["status"] == "success"
+
+        paste_res2 = await skill.execute(action="paste")
+        assert paste_res2["text"] == ""
+
+
+# 3. GIT ASSISTANT
+def test_git_assistant_declaration():
+    skill = GitAssistantSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "git_assistant"
+    assert "action" in decl.parameters.properties
+
+
+@pytest.mark.anyio
+async def test_git_assistant_status_and_log():
+    skill = GitAssistantSkill()
+    status_res = await skill.execute(action="status")
+    assert status_res["status"] == "success"
+    assert "output" in status_res
+
+    log_res = await skill.execute(action="log")
+    assert log_res["status"] == "success"
+    assert "output" in log_res
+
+    branch_res = await skill.execute(action="branch")
+    assert branch_res["status"] == "success"
+    assert "main" in branch_res["output"]
+
+
+# 4. QUICK NOTES
+def test_quick_notes_declaration():
+    skill = QuickNotesSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "quick_notes"
+
+
+@pytest.mark.anyio
+async def test_quick_notes_lifecycle(tmp_path):
+    skill = QuickNotesSkill()
+    skill.NOTES_FILE = str(tmp_path / "notes.json")
+
+    # Add
+    add_res = await skill.execute(action="add", text="Comprar cromo Kiroshi", category="tarea")
+    assert add_res["status"] == "success"
+    note_id = add_res["note"]["id"]
+
+    # List
+    list_res = await skill.execute(action="list")
+    assert list_res["status"] == "success"
+    assert list_res["count"] == 1
+
+    # Search
+    search_res = await skill.execute(action="search", text="Kiroshi")
+    assert search_res["status"] == "success"
+    assert len(search_res["matches"]) == 1
+
+    # Mark done
+    done_res = await skill.execute(action="done", note_id=note_id)
+    assert done_res["status"] == "success"
+
+    # Clear completed
+    clear_res = await skill.execute(action="clear")
+    assert clear_res["status"] == "success"
+    assert clear_res["cleared_count"] == 1
+
+    list_res2 = await skill.execute(action="list")
+    assert list_res2["count"] == 0
+
+
+# 5. PACKAGE MANAGER
+def test_package_manager_declaration():
+    skill = PackageManagerSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "package_manager"
+
+
+@pytest.mark.anyio
+async def test_package_manager_check_installed():
+    skill = PackageManagerSkill()
+    # git está instalado
+    res_git = await skill.execute(action="check", package_name="git")
+    assert res_git["status"] == "success"
+    assert res_git["is_installed"] is True
+
+    # paquete ficticio
+    res_fake = await skill.execute(action="check", package_name="paquete_inexistente_cyberpunk_xyz")
+    assert res_fake["status"] == "success"
+    assert res_fake["is_installed"] is False
+
+
+@pytest.mark.anyio
+async def test_package_manager_search():
+    skill = PackageManagerSkill()
+    res = await skill.execute(action="search", package_name="python3")
+    assert res["status"] == "success"
+    assert len(res["results"]) > 0
+
+
+# 6. SCREENSHOT
+def test_screenshot_declaration():
+    skill = ScreenshotSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "screenshot"
+
+
+@pytest.mark.anyio
+async def test_screenshot_execution_mocked(tmp_path):
+    skill = ScreenshotSkill()
+    from unittest.mock import patch, AsyncMock
+    fake_img = tmp_path / "test_shot.png"
+    fake_img.write_bytes(b"\x89PNG\r\n\x1a\nfakeimagebytes")
+
+    with patch.object(skill, "_get_target_dir", return_value=str(tmp_path)):
+        with patch("shutil.which", side_effect=lambda bin: "/usr/bin/" + bin if bin == "gdbus" else None):
+            with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+                mock_proc = AsyncMock()
+                mock_proc.returncode = 0
+                mock_proc.communicate.return_value = (b"", b"")
+                mock_exec.return_value = mock_proc
+
+                res = await skill.execute(filename="test_shot.png")
+                assert res["status"] == "success"
+                assert "test_shot.png" in res["filepath"]
+                assert res["size_kb"] > 0
+
+
+# 7. MEDIA CONTROL
+def test_media_control_declaration():
+    skill = MediaControlSkill()
+    decl = skill.to_gemini_declaration()
+    assert decl.name == "media_control"
+
+
+@pytest.mark.anyio
+async def test_media_control_status_fallback():
+    skill = MediaControlSkill()
+    res = await skill.execute(action="status")
+    assert res["status"] in ("success", "error")
+    assert "message" in res
+
 
 
 

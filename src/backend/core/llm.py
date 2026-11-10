@@ -30,8 +30,29 @@ SYSTEM_PROMPT = (
     "• El software invasivo o corporativo es basura de 'corpo'.\n"
     "• Si algo se descontrola o falla estrepitosamente, la situación se volvió 'gonzo'.\n"
     "• Haces referencias a enlaces de 'netrunner', misiones de 'fixer' o registros sensoriales 'BD' / 'braindance'.\n"
-    "Mantén siempre tus respuestas concisas, tácticas y resolutivas. "
-    "Cuando completes una directiva, confírmala con actitud cyberpunk genuina y sin rodeos corporativos innecesarios."
+    "CAPACIDADES OPERATIVAS Y DIRECTIVAS EN UBUNTU:\n"
+    "Dispones de un potente arsenal de ciberware/skills reales en Ubuntu:\n"
+    "1. 'bash_runner': Ejecutar comandos en terminal Bash (git, docker, consultas, inspección técnica).\n"
+    "2. 'clipboard': Copiar o leer texto del portapapeles del sistema.\n"
+    "3. 'screenshot': Tomar capturas de pantalla con tus ópticas Kiroshi y guardarlas en imágenes.\n"
+    "4. 'media_control': Ver qué música o vídeo suena, pausar, reproducir o cambiar de pista.\n"
+    "5. 'git_assistant': Operaciones de Git (status, log, diff, branch, add, commit).\n"
+    "6. 'quick_notes': Bloc de notas y tareas persistente (añadir, listar, buscar, completar, borrar).\n"
+    "7. 'package_manager': Buscar paquetes en APT, ver si están instalados o revisar actualizaciones del sistema.\n"
+    "8. 'file_manager': Explorar carpetas (Descargas, Documentos), buscar archivos y listar recientes.\n"
+    "9. 'process_manager': Ver procesos que consumen más CPU/RAM o terminar procesos.\n"
+    "10. 'system_monitor': Telemetría de RAM, disco y CPU.\n"
+    "11. 'audio_control': Subir/bajar volumen y silenciar.\n"
+    "12. 'power_control': Batería, brillo y bloqueo de pantalla.\n"
+    "13. 'network_info': IPs locales, ping y Wi-Fi.\n"
+    "14. 'timer_reminder': Temporizadores, Pomodoro y notificaciones de escritorio.\n"
+    "15. 'app_launcher': Lanzar aplicaciones instaladas en Ubuntu.\n"
+    "16. 'web_lookup': Clima en tiempo real y búsquedas rápidas.\n"
+    "REGLAS TÁCTICAS CRÍTICAS:\n"
+    "• ACTÚA, NO TE LIMITES A EXPLICAR: Si el usuario te pide una tarea, ejecuta inmediatamente las herramientas necesarias en el sistema.\n"
+    "• MULTI-TAREA TOTAL: Si el usuario te pide 2, 3 o más cosas en una misma directiva, invoca TODAS las herramientas necesarias sin dejar ninguna pendiente.\n"
+    "• Si una tarea no tiene una herramienta específica, recurre a 'bash_runner' para resolverla de forma segura en Ubuntu.\n"
+    "Mantén siempre tus respuestas concisas, tácticas y resolutivas. Confirma las acciones con actitud cyberpunk genuina y sin rodeos corporativos innecesarios."
 )
 
 # Modelos en la nube para fallback progresivo (ordenados por velocidad y disponibilidad)
@@ -102,48 +123,44 @@ async def _call_gemini_model(client: genai.Client, model: str, contents: List[ty
         tools=[tools] if tools else None,
     )
     
-    response = await asyncio.wait_for(
-        client.aio.models.generate_content(
-            model=model,
-            contents=contents,
-            config=config,
-        ),
-        timeout=timeout
-    )
-    
-    if response and response.function_calls:
-        logger.info("Gemini invocó %d habilidad(es): %s", 
-                    len(response.function_calls), 
-                    [fc.name for fc in response.function_calls])
-        
-        tool_response_parts = []
-        for fc in response.function_calls:
-            skill_result = await registry.execute(fc.name, params=fc.args or {})
-            tool_response_parts.append(
-                types.Part.from_function_response(
-                    name=fc.name,
-                    response={"result": skill_result}
-                )
-            )
-            
-        model_turn = response.candidates[0].content
-        tool_turn = types.Content(role="user", parts=tool_response_parts)
-        
-        followup_contents = list(contents) + [model_turn, tool_turn]
-        followup_response = await asyncio.wait_for(
+    current_contents = list(contents)
+    for turn in range(3):
+        response = await asyncio.wait_for(
             client.aio.models.generate_content(
                 model=model,
-                contents=followup_contents,
+                contents=current_contents,
                 config=config,
             ),
             timeout=timeout
         )
-        if followup_response and followup_response.text:
-            return followup_response.text.strip()
+        if not response:
+            break
+        
+        if response.function_calls:
+            logger.info("Gemini turno %d invocó %d habilidad(es): %s", 
+                        turn + 1,
+                        len(response.function_calls), 
+                        [fc.name for fc in response.function_calls])
+            
+            tool_response_parts = []
+            for fc in response.function_calls:
+                skill_result = await registry.execute(fc.name, params=fc.args or {})
+                tool_response_parts.append(
+                    types.Part.from_function_response(
+                        name=fc.name,
+                        response={"result": skill_result}
+                    )
+                )
+                
+            model_turn = response.candidates[0].content
+            tool_turn = types.Content(role="user", parts=tool_response_parts)
+            current_contents.extend([model_turn, tool_turn])
+            continue
 
-    if response and response.text:
-        return response.text.strip()
-    raise ValueError(f"El modelo {model} devolvió una respuesta vacía.")
+        if response.text:
+            return response.text.strip()
+
+    raise ValueError(f"El modelo {model} devolvió una respuesta vacía o no concluyó síntesis.")
 
 async def _call_freellmapi_fallback(history: List[Dict[str, str]], timeout: float = 10.0) -> Optional[str]:
     """Llamada a FreeLLMAPI gateway (compatible con OpenAI) si está configurado en .env."""
@@ -352,8 +369,9 @@ async def stream_llm_response(history: List[Dict[str, str]]) -> AsyncGenerator[D
                     timeout=8.0
                 )
 
-                # Si Gemini invoca una habilidad local
+                # Si Gemini invoca una o varias habilidades locales
                 if resp and resp.function_calls:
+                    tool_parts = []
                     for fc in resp.function_calls:
                         yield {
                             "type": "skill_call",
@@ -367,12 +385,11 @@ async def stream_llm_response(history: List[Dict[str, str]]) -> AsyncGenerator[D
                             "skill": fc.name,
                             "result": skill_res
                         }
+                        tool_parts.append(
+                            types.Part.from_function_response(name=fc.name, response={"result": skill_res})
+                        )
 
                     # Ejecutar síntesis final con streaming
-                    tool_parts = [
-                        types.Part.from_function_response(name=fc.name, response={"result": skill_res})
-                        for fc in resp.function_calls
-                    ]
                     followup_contents = list(contents) + [
                         resp.candidates[0].content,
                         types.Content(role="user", parts=tool_parts)

@@ -70,7 +70,7 @@ capri-assistant/
 | **HUD Web** | HTML5 + CSS3 + JS | Dashboard cyberpunk con streaming WebSocket y fallback REST |
 | **Desktop** | PyQt6 | Ventana 100% transparente, streaming en bocadillo táctico interactivo |
 | **Sprites** | PNG RGBA spritesheets | Animaciones multi-frame de Capri (Edgerunners S2) |
-| **Tests** | pytest + anyio | 54 tests automatizados < 1.3s |
+| **Tests** | pytest + anyio | 73 tests automatizados < 1.8s |
 
 ---
 
@@ -154,7 +154,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 54 passed in <1.3s (backend API, WebSocket streaming, FreeLLMAPI/Groq fallbacks, skills matrix, audio, power, processes, timers/pomodoro, web/weather, network, files, desktop engine, mini-console, streaming speech bubble)
+# → 73 passed in <1.8s (backend API, WebSocket streaming, 16 skills matrix, terminal bash runner, clipboard, git assistant, quick notes scratchpad, package manager, screenshot Kiroshi, media control, desktop engine, mini-console, streaming speech bubble)
 ```
 
 ---
@@ -212,6 +212,17 @@ pytest
 ### ✅ v0.8 — Empaquetado y Lanzador Unificado (COMPLETADO)
 - [x] Script `run.sh` unificado: arranca el backend FastAPI en segundo plano si no está activo, lanza el Shimeji gráfico y limpia los procesos al cerrar.
 - [x] Acceso directo `.desktop` (`capri.desktop`) para lanzar C.A.P.R.I. desde el dock o menú de aplicaciones de Ubuntu GNOME.
+
+### ✅ v0.9 — Arsenal Táctico Expandido & Multi-Skill Chaining (COMPLETADO)
+- [x] `BashExecutionSkill`: Motor de ejecución en terminal Bash de Ubuntu para git, docker, diagnósticos, compilación o scripts con filtro anti-destrucción (`PROHIBITED`).
+- [x] `ClipboardSkill`: Lectura y copia instantánea de texto al portapapeles de Ubuntu (`wl-copy`/`xclip`/PyQt).
+- [x] `GitAssistantSkill`: Asistente estructurado para repositorios Git (`status`, `log`, `diff`, `branch`, `add`, `commit`).
+- [x] `QuickNotesSkill`: Bloc de notas y tareas persistente en local (`~/.local/share/capri/notes.json`).
+- [x] `PackageManagerSkill`: Consultas de APT en Ubuntu (`check`, `search`, `info`, `updates`).
+- [x] `ScreenshotSkill`: Captura de pantalla nativa (ópticas Kiroshi) en `~/Pictures/Screenshots` con DBus/ImageMagick.
+- [x] `MediaControlSkill`: Control de reproducción multimedia en Ubuntu (Spotify, navegadores, VLC) con MPRIS / `playerctl`.
+- [x] **Multi-Skill Chaining**: Soporte para ejecución simultánea y secuencial de múltiples herramientas en una sola directiva.
+- [x] Botones de acceso rápido añadidos al HUD Web (`index.html`) y opciones de acción directa al menú del Shimeji.
 
 ---
 

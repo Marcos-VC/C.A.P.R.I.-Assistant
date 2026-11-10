@@ -13,6 +13,15 @@ from src.backend.skills.system_skills import (
     NetworkInfoSkill,
     FileManagerSkill,
 )
+from src.backend.skills.advanced_skills import (
+    BashExecutionSkill,
+    ClipboardSkill,
+    GitAssistantSkill,
+    QuickNotesSkill,
+    PackageManagerSkill,
+    ScreenshotSkill,
+    MediaControlSkill,
+)
 
 logger = logging.getLogger("capri.skills")
 
@@ -106,5 +115,13 @@ def get_skill_registry() -> SkillRegistry:
         _default_registry.register(WebLookupSkill())
         _default_registry.register(NetworkInfoSkill())
         _default_registry.register(FileManagerSkill())
+        # Habilidades avanzadas de control y productividad en Ubuntu
+        _default_registry.register(BashExecutionSkill())
+        _default_registry.register(ClipboardSkill())
+        _default_registry.register(GitAssistantSkill())
+        _default_registry.register(QuickNotesSkill())
+        _default_registry.register(PackageManagerSkill())
+        _default_registry.register(ScreenshotSkill())
+        _default_registry.register(MediaControlSkill())
     return _default_registry
 
