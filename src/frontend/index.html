@@ -179,33 +179,100 @@
 
     <header>
         <h1>🤖 C.A.P.R.I. // SYSTEM_HUD</h1>
-        <div class="status-badge" id="statusBadge">SYSTEM ONLINE</div>
+        <div class="status-badge" id="statusBadge">CONECTANDO WEBSOCKET...</div>
     </header>
 
     <div class="main-container">
         <div class="chat-section">
             <div class="chat-box" id="chatBox">
                 <div class="message bot-msg">
-                    <strong>[C.A.P.R.I.]:</strong> Interfaz lista. Sistema en escucha local.
+                    <strong>[C.A.P.R.I.]:</strong> Enlace neural listo, choom. Streaming de tokens y ciberware activo.
                 </div>
             </div>
             <div class="input-area">
-                <input type="text" id="userInput" placeholder="Escribe un mensaje o comando..." onkeydown="if(event.key==='Enter') sendMessage()">
+                <input type="text" id="userInput" placeholder="Escribe una directiva o pregunta táctica..." onkeydown="if(event.key==='Enter') sendMessage()">
                 <button onclick="sendMessage()">ENVIAR</button>
             </div>
         </div>
 
         <div class="sidebar">
             <h2>HABILIDADES</h2>
-            <button class="skill-btn" onclick="runSkill('system_monitor')">⚡ System Monitor (RAM/Disk)</button>
+            <button class="skill-btn" onclick="runSkill('system_monitor')">⚡ Telemetría (RAM/Disco)</button>
+            <button class="skill-btn" onclick="runSkill('power_control', {action: 'battery'})">🔋 Batería & Brillo</button>
+            <button class="skill-btn" onclick="runSkill('process_manager', {action: 'top_cpu'})">⚙️ Procesos Top CPU</button>
+            <button class="skill-btn" onclick="runSkill('network_info', {action: 'ping'})">🌐 Diagnóstico Red Ping</button>
             
-            <h2>SALIDA TÉCNICA</h2>
-            <div class="output-box" id="techOutput">Esperando ejecuciones...</div>
+            <h2>TELEMETRÍA EN VIVO</h2>
+            <div class="output-box" id="techOutput">Esperando ejecuciones tácticas...</div>
         </div>
     </div>
 
     <script>
         const sessionId = "web_session_" + Math.floor(Math.random() * 10000);
+        const statusBadge = document.getElementById('statusBadge');
+        const techOutput = document.getElementById('techOutput');
+        let currentBotMsgElement = null;
+        let ws = null;
+
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                statusBadge.innerText = "⚡ WS STREAMING ONLINE";
+                statusBadge.style.borderColor = "var(--accent-green)";
+                statusBadge.style.color = "var(--accent-green)";
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleStreamEvent(data);
+                } catch (e) {
+                    console.error("Error parseando evento WS:", e);
+                }
+            };
+
+            ws.onclose = () => {
+                statusBadge.innerText = "REST FALLBACK (WS DESCONECTADO)";
+                statusBadge.style.borderColor = "var(--accent-cyan)";
+                statusBadge.style.color = "var(--accent-cyan)";
+                setTimeout(initWebSocket, 4000);
+            };
+
+            ws.onerror = () => {
+                ws.close();
+            };
+        }
+
+        function handleStreamEvent(data) {
+            const chatBox = document.getElementById('chatBox');
+
+            if (data.type === 'status') {
+                techOutput.innerText = `[ESTADO]: ${data.message || data.stage}`;
+            } else if (data.type === 'skill_call') {
+                techOutput.innerText = `⚡ [ACTIVANDO CIBERWARE]: ${data.skill}\nParámetros: ${JSON.stringify(data.params, null, 2)}`;
+            } else if (data.type === 'skill_result') {
+                techOutput.innerText += `\n\n✔ [RESULTADO]: ${JSON.stringify(data.result, null, 2)}`;
+            } else if (data.type === 'token') {
+                if (!currentBotMsgElement) {
+                    currentBotMsgElement = document.createElement('div');
+                    currentBotMsgElement.className = 'message bot-msg';
+                    currentBotMsgElement.innerHTML = `<strong>[C.A.P.R.I.]:</strong> <span class="content"></span>`;
+                    chatBox.appendChild(currentBotMsgElement);
+                }
+                const span = currentBotMsgElement.querySelector('.content');
+                span.innerText += data.delta;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            } else if (data.type === 'done') {
+                currentBotMsgElement = null;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            } else if (data.type === 'error') {
+                appendMessage(`[ERROR]: ${data.message}`, 'bot-msg', 'SYSTEM');
+                currentBotMsgElement = null;
+            }
+        }
 
         async function sendMessage() {
             const input = document.getElementById('userInput');
@@ -214,17 +281,24 @@
 
             appendMessage(message, 'user-msg', 'Tú');
             input.value = '';
+            currentBotMsgElement = null;
 
-            try {
-                const res = await fetch('/api/v1/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId, message: message })
-                });
-                const data = await res.json();
-                appendMessage(data.response, 'bot-msg', 'C.A.P.R.I.');
-            } catch (err) {
-                appendMessage("Error de conexión con el servidor backend.", 'bot-msg', 'SYSTEM');
+            // Si WebSocket está abierto, transmitir por WS
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ session_id: sessionId, message: message }));
+            } else {
+                // Fallback REST
+                try {
+                    const res = await fetch('/api/v1/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: sessionId, message: message })
+                    });
+                    const data = await res.json();
+                    appendMessage(data.response, 'bot-msg', 'C.A.P.R.I.');
+                } catch (err) {
+                    appendMessage("Error de conexión con el backend.", 'bot-msg', 'SYSTEM');
+                }
             }
         }
 
@@ -237,22 +311,22 @@
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        async function runSkill(skillName) {
-            const outputBox = document.getElementById('techOutput');
-            outputBox.innerText = `Ejecutando ${skillName}...`;
-
+        async function runSkill(skillName, params = {}) {
+            techOutput.innerText = `Ejecutando ${skillName}...`;
             try {
                 const res = await fetch('/api/v1/skills/execute', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ skill_name: skillName })
+                    body: JSON.stringify({ skill_name: skillName, params: params })
                 });
                 const data = await res.json();
-                outputBox.innerText = JSON.stringify(data.result, null, 2);
+                techOutput.innerText = JSON.stringify(data.result, null, 2);
             } catch (err) {
-                outputBox.innerText = "Error ejecutando habilidad.";
+                techOutput.innerText = "Error ejecutando habilidad.";
             }
         }
+
+        window.addEventListener('load', initWebSocket);
     </script>
 </body>
 </html>

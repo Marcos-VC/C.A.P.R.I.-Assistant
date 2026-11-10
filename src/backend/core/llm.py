@@ -1,7 +1,8 @@
 import os
 import asyncio
 import logging
-from typing import List, Dict, Optional
+import json
+from typing import List, Dict, Optional, AsyncGenerator, Any
 from dotenv import load_dotenv
 import httpx
 from google import genai
@@ -45,6 +46,11 @@ GROQ_MODELS = [
     "llama-3.1-8b-instant",
 ]
 
+# Configuración FreeLLMAPI (Gateway masivo multi-modelo con failover anti-429)
+FREELLMAPI_BASE_URL = os.getenv("FREELLMAPI_BASE_URL", "").rstrip("/")
+FREELLMAPI_API_KEY = os.getenv("FREELLMAPI_API_KEY", "freellmapi")
+FREELLMAPI_MODEL = os.getenv("FREELLMAPI_MODEL", "default")
+
 # Cliente Gemini en caché para reutilización de sockets HTTPX
 _gemini_client: Optional[genai.Client] = None
 _cached_gemini_key: Optional[str] = None
@@ -69,11 +75,20 @@ def _build_gemini_contents(history: List[Dict[str, str]]) -> List[types.Content]
         if text:
             contents.append(types.Content(role=role, parts=[types.Part.from_text(text=text)]))
     
-    # Si por alguna razón el historial está vacío, agregar un prompt genérico
     if not contents:
         contents.append(types.Content(role="user", parts=[types.Part.from_text(text="Estado del sistema.")]))
     
     return contents
+
+def _build_openai_messages(history: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """Convierte el historial al formato estándar de mensajes de OpenAI/FreeLLMAPI/Groq."""
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for msg in history:
+        role = "user" if msg.get("role") == "user" else "assistant"
+        content = msg.get("content", "").strip()
+        if content:
+            messages.append({"role": role, "content": content})
+    return messages
 
 async def _call_gemini_model(client: genai.Client, model: str, contents: List[types.Content], timeout: float = 12.0) -> str:
     """Ejecuta una llamada asíncrona a un modelo específico de Gemini con soporte nativo de Function Calling."""
@@ -96,7 +111,6 @@ async def _call_gemini_model(client: genai.Client, model: str, contents: List[ty
         timeout=timeout
     )
     
-    # Manejo autónomo de Function Calling si Gemini decide invocar habilidades locales
     if response and response.function_calls:
         logger.info("Gemini invocó %d habilidad(es): %s", 
                     len(response.function_calls), 
@@ -131,18 +145,51 @@ async def _call_gemini_model(client: genai.Client, model: str, contents: List[ty
         return response.text.strip()
     raise ValueError(f"El modelo {model} devolvió una respuesta vacía.")
 
+async def _call_freellmapi_fallback(history: List[Dict[str, str]], timeout: float = 10.0) -> Optional[str]:
+    """Llamada a FreeLLMAPI gateway (compatible con OpenAI) si está configurado en .env."""
+    base_url = os.getenv("FREELLMAPI_BASE_URL", FREELLMAPI_BASE_URL).rstrip("/")
+    if not base_url:
+        return None
+
+    api_key = os.getenv("FREELLMAPI_API_KEY", FREELLMAPI_API_KEY)
+    model = os.getenv("FREELLMAPI_MODEL", FREELLMAPI_MODEL)
+    messages = _build_openai_messages(history)
+    endpoint = f"{base_url}/chat/completions"
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            logger.info("Enrutando directiva a FreeLLMAPI gateway (%s)...", base_url)
+            resp = await client.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": 600
+                }
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices and "message" in choices[0]:
+                    return choices[0]["message"].get("content", "").strip()
+            else:
+                logger.warning("FreeLLMAPI devolvió status %d: %s", resp.status_code, resp.text[:200])
+        except Exception as e:
+            logger.warning("Error conectando con FreeLLMAPI (%s): %s", endpoint, str(e))
+    return None
+
 async def _call_groq_fallback(history: List[Dict[str, str]], timeout: float = 8.0) -> Optional[str]:
-    """Fallback secundario 100% en la nube vía Groq API si está configurada."""
+    """Fallback 100% en la nube vía Groq API si está configurada."""
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
         return None
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for msg in history:
-        role = "user" if msg.get("role") == "user" else "assistant"
-        content = msg.get("content", "").strip()
-        if content:
-            messages.append({"role": role, "content": content})
+    messages = _build_openai_messages(history)
 
     async with httpx.AsyncClient(timeout=timeout) as http_client:
         for model in GROQ_MODELS:
@@ -175,8 +222,10 @@ async def _call_groq_fallback(history: List[Dict[str, str]], timeout: float = 8.
 async def generate_llm_response(history: List[Dict[str, str]]) -> str:
     """
     Genera la respuesta del LLM con cascada de fallback resiliente.
-    Prioridad: Gemini (3.5-flash-lite -> 3.6-flash -> 3.5-flash) -> Groq Cloud (si está configurado).
-    No consume recursos locales (CPU/RAM).
+    Prioridad:
+    1. Gemini Directo (3.5-flash-lite -> 3.6-flash -> 3.5-flash) con Function Calling local
+    2. FreeLLMAPI Gateway (si FREELLMAPI_BASE_URL está configurado)
+    3. Groq Cloud (si GROQ_API_KEY está configurada)
     """
     client = get_gemini_client()
     errors_log = []
@@ -201,7 +250,13 @@ async def generate_llm_response(history: List[Dict[str, str]]) -> str:
     else:
         errors_log.append("GEMINI_API_KEY no encontrada.")
 
-    # Si los modelos de Gemini fallaron o no hay clave, intentar Groq Cloud si existe
+    # Fallback a FreeLLMAPI si está configurado
+    freellm_reply = await _call_freellmapi_fallback(history)
+    if freellm_reply:
+        logger.info("Respuesta generada exitosamente mediante FreeLLMAPI Gateway.")
+        return freellm_reply
+
+    # Fallback a Groq Cloud si está configurado
     groq_reply = await _call_groq_fallback(history)
     if groq_reply:
         logger.info("Respuesta generada exitosamente mediante fallback en Groq.")
@@ -212,5 +267,193 @@ async def generate_llm_response(history: List[Dict[str, str]]) -> str:
     return (
         f"[SYSTEM ERROR]: Interrupción en el enlace neural con los servicios de nube.\n"
         f"Diagnóstico de fallos: {diag}.\n"
-        f"Comprueba tu conexión de red o el estado de cuota en Google AI Studio."
+        f"Comprueba tu conexión de red o verifica tu clave en Google AI Studio o FreeLLMAPI."
     )
+
+async def _stream_openai_compatible_endpoint(
+    base_url: str,
+    api_key: str,
+    model: str,
+    messages: List[Dict[str, str]],
+    timeout: float = 14.0
+) -> AsyncGenerator[str, None]:
+    """Generador asíncrono para streaming Server-Sent Events (SSE) compatible con OpenAI/FreeLLMAPI/Groq."""
+    endpoint = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "temperature": 0.7,
+        "max_tokens": 600
+    }
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream("POST", endpoint, headers=headers, json=payload) as response:
+            if response.status_code != 200:
+                body = await response.aread()
+                raise RuntimeError(f"HTTP {response.status_code}: {body.decode('utf-8')[:200]}")
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line or line == "data: [DONE]":
+                    continue
+                if line.startswith("data: "):
+                    try:
+                        chunk_obj = json.loads(line[6:])
+                        choices = chunk_obj.get("choices", [])
+                        if choices:
+                            delta_content = choices[0].get("delta", {}).get("content", "")
+                            if delta_content:
+                                yield delta_content
+                    except Exception:
+                        continue
+
+async def stream_llm_response(history: List[Dict[str, str]]) -> AsyncGenerator[Dict[str, Any], None]:
+    """
+    Motor de streaming en tiempo real para C.A.P.R.I.
+    Emite eventos estructurados:
+    • {'type': 'status', 'stage': '...', 'message': '...'}
+    • {'type': 'skill_call', 'skill': '...', 'params': {...}}
+    • {'type': 'skill_result', 'skill': '...', 'result': {...}}
+    • {'type': 'token', 'delta': '...'}
+    • {'type': 'done', 'full_response': '...'}
+    """
+    client = get_gemini_client()
+    full_text = ""
+
+    # 1. INTENTAR STREAMING CON GEMINI DIRECTO (con soporte de skills)
+    if client:
+        contents = _build_gemini_contents(history)
+        registry = get_skill_registry()
+        tools = registry.get_gemini_tools()
+
+        config = types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            temperature=0.7,
+            max_output_tokens=600,
+            tools=[tools] if tools else None,
+        )
+
+        for model in GEMINI_MODELS:
+            try:
+                yield {"type": "status", "stage": "connecting", "message": f"Conectando a {model}..."}
+                
+                # Primero llamamos a generate_content para verificar si hay function_calls
+                # o si podemos iniciar el streaming de texto directo
+                resp = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model=model,
+                        contents=contents,
+                        config=config
+                    ),
+                    timeout=8.0
+                )
+
+                # Si Gemini invoca una habilidad local
+                if resp and resp.function_calls:
+                    for fc in resp.function_calls:
+                        yield {
+                            "type": "skill_call",
+                            "skill": fc.name,
+                            "params": fc.args or {},
+                            "message": f"Activando ciberware '{fc.name}'..."
+                        }
+                        skill_res = await registry.execute(fc.name, params=fc.args or {})
+                        yield {
+                            "type": "skill_result",
+                            "skill": fc.name,
+                            "result": skill_res
+                        }
+
+                    # Ejecutar síntesis final con streaming
+                    tool_parts = [
+                        types.Part.from_function_response(name=fc.name, response={"result": skill_res})
+                        for fc in resp.function_calls
+                    ]
+                    followup_contents = list(contents) + [
+                        resp.candidates[0].content,
+                        types.Content(role="user", parts=tool_parts)
+                    ]
+
+                    followup_stream = await client.aio.models.generate_content_stream(
+                        model=model,
+                        contents=followup_contents,
+                        config=config
+                    )
+                    async for chunk in followup_stream:
+                        if chunk.text:
+                            full_text += chunk.text
+                            yield {"type": "token", "delta": chunk.text}
+
+                    yield {"type": "done", "full_response": full_text}
+                    return
+
+                # Si no hubo function calls, emitir el texto
+                if resp and resp.text:
+                    full_text = resp.text.strip()
+                    # Simular streaming de tokens si ya vino completo
+                    words = full_text.split(" ")
+                    for i, w in enumerate(words):
+                        delta = w + (" " if i < len(words) - 1 else "")
+                        yield {"type": "token", "delta": delta}
+                        await asyncio.sleep(0.015)
+                    yield {"type": "done", "full_response": full_text}
+                    return
+
+            except Exception as e:
+                logger.warning("Streaming en Gemini [%s] falló: %s", model, str(e))
+                continue
+
+    # 2. FALLBACK STREAMING CON FREELLMAPI (si está configurado)
+    freellm_url = os.getenv("FREELLMAPI_BASE_URL", FREELLMAPI_BASE_URL).rstrip("/")
+    if freellm_url:
+        try:
+            yield {"type": "status", "stage": "freellmapi", "message": "Enrutando flujo a FreeLLMAPI Gateway..."}
+            messages = _build_openai_messages(history)
+            api_key = os.getenv("FREELLMAPI_API_KEY", FREELLMAPI_API_KEY)
+            model_name = os.getenv("FREELLMAPI_MODEL", FREELLMAPI_MODEL)
+            async for delta in _stream_openai_compatible_endpoint(
+                base_url=freellm_url,
+                api_key=api_key,
+                model=model_name,
+                messages=messages
+            ):
+                full_text += delta
+                yield {"type": "token", "delta": delta}
+
+            yield {"type": "done", "full_response": full_text}
+            return
+        except Exception as e:
+            logger.warning("Streaming con FreeLLMAPI falló: %s", str(e))
+
+    # 3. FALLBACK STREAMING CON GROQ CLOUD (si está configurado)
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        try:
+            yield {"type": "status", "stage": "groq", "message": "Enrutando flujo a Groq Cloud..."}
+            messages = _build_openai_messages(history)
+            async for delta in _stream_openai_compatible_endpoint(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=groq_key,
+                model="llama-3.3-70b-versatile",
+                messages=messages
+            ):
+                full_text += delta
+                yield {"type": "token", "delta": delta}
+
+            yield {"type": "done", "full_response": full_text}
+            return
+        except Exception as e:
+            logger.warning("Streaming con Groq falló: %s", str(e))
+
+    # 4. ERROR TOTAL: EMITIR DIAGNÓSTICO
+    fallback_msg = (
+        "[SYSTEM ERROR]: No se pudo establecer enlace de streaming con ningún proveedor de IA. "
+        "Verifica tu GEMINI_API_KEY o levanta FreeLLMAPI localmente."
+    )
+    yield {"type": "token", "delta": fallback_msg}
+    yield {"type": "done", "full_response": fallback_msg}
+

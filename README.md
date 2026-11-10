@@ -61,15 +61,16 @@ capri-assistant/
 
 | Capa | Tecnología | Descripción |
 |:---|:---|:---|
-| **Backend** | FastAPI + Uvicorn | API REST asíncrona en el puerto 8000 |
+| **Backend** | FastAPI + Uvicorn | API REST y WebSocket (`/ws/chat`) en el puerto 8000 |
 | **LLM Cloud** | `google-genai` SDK | `gemini-3.5-flash-lite` (principal) con fallback a `gemini-3.6-flash` y `gemini-3.5-flash` |
+| **Gateway Fallback** | FreeLLMAPI / Groq | Gateway multi-modelo anti-429 (OpenAI-compatible) y respaldo en la nube con Llama 3.3 |
 | **Memoria** | SQLite | Historial de conversaciones por `session_id` |
 | **Skills** | SkillRegistry | Ejecución segura con matrix SAFE / CONFIRM_REQUIRED / PROHIBITED |
 | **Function Calling** | `types.Tool` nativo de Gemini | El modelo invoca skills locales de forma autónoma |
-| **HUD Web** | HTML5 + CSS3 + JS | Dashboard cyberpunk servido desde FastAPI |
-| **Desktop** | PyQt6 | Ventana 100% transparente, siempre-al-frente, sin bordes |
+| **HUD Web** | HTML5 + CSS3 + JS | Dashboard cyberpunk con streaming WebSocket y fallback REST |
+| **Desktop** | PyQt6 | Ventana 100% transparente, streaming en bocadillo táctico interactivo |
 | **Sprites** | PNG RGBA spritesheets | Animaciones multi-frame de Capri (Edgerunners S2) |
-| **Tests** | pytest + anyio | 10 tests automatizados < 0.7s |
+| **Tests** | pytest + anyio | 54 tests automatizados < 1.3s |
 
 ---
 
@@ -153,7 +154,7 @@ El HUD Web estará disponible en **http://127.0.0.1:8000**
 
 ```bash
 pytest
-# → 48 passed in <1.2s (backend API, skills matrix, audio, power, processes, timers/pomodoro, web/weather, network, files, desktop engine, mini-console, speech bubble)
+# → 54 passed in <1.3s (backend API, WebSocket streaming, FreeLLMAPI/Groq fallbacks, skills matrix, audio, power, processes, timers/pomodoro, web/weather, network, files, desktop engine, mini-console, streaming speech bubble)
 ```
 
 ---
@@ -184,13 +185,6 @@ pytest
 - [x] Máquina de estados completa con física (gravedad, arrastre, patrulla autónoma).
 - [x] Enlace en vivo con el backend: LED verde = online, cyan = offline.
 
-### ✅ v0.6 — Mini-Consola y Bocadillo de Respuesta Interactivo (COMPLETADO)
-- [x] Mini-consola `CyberCommandConsole` estilizada Cyberpunk (borde cian `#00e5ff`, texto verde `#00ff66`, fondo oscuro `#0d0f12`).
-- [x] Activación inmediata mediante clic simple sobre Capri, clic central (rueda) o menú contextual ("💬 Enviar directiva...").
-- [x] Bocadillo de respuesta completo `CyberSpeechBubble` (ventana flotante persistente, tamaño dinámico, scroll): muestra la respuesta íntegra del LLM sin truncar.
-- [x] Se cierra al hacer clic en él, pulsar `Esc` o botón `[✕]`.
-- [x] Despacho no bloqueante al backend (`/api/v1/chat`) con animación táctica `SCANNING` → `GRINNING`.
-
 ### ✅ v0.5 — Control del Sistema y Automatización en Ubuntu (COMPLETADO)
 - [x] `AudioControlSkill`: Volumen, silencio y reactivación con PipeWire/PulseAudio (`wpctl`/`pactl`).
 - [x] `AppLauncherSkill`: Lanzador de aplicaciones en Ubuntu (`gtk-launch`/`gio`/binario directo) con alias en castellano.
@@ -202,18 +196,22 @@ pytest
 - [x] `FileManagerSkill`: Exploración táctica de carpetas (`Downloads`, `Documents`, etc.), búsqueda de archivos y archivos modificados recientemente.
 - [x] **Cyberpunk Edgerunners Persona**: Personalidad inmersiva y léxico auténtico de Night City integrado (*choom, preem, nova, ciberware, ciberpsicosis, flatline, Kiroshi, zerar, gonzo*).
 
+### ✅ v0.6 — Mini-Consola y Bocadillo de Respuesta Interactivo (COMPLETADO)
+- [x] Mini-consola `CyberCommandConsole` estilizada Cyberpunk (borde cian `#00e5ff`, texto verde `#00ff66`, fondo oscuro `#0d0f12`).
+- [x] Activación inmediata mediante clic simple sobre Capri, clic central (rueda) o menú contextual ("💬 Enviar directiva...").
+- [x] Bocadillo de respuesta completo `CyberSpeechBubble` (ventana flotante persistente, tamaño dinámico, scroll): muestra la respuesta íntegra del LLM sin truncar.
+- [x] Se cierra al hacer clic en él, pulsar `Esc` o botón `[✕]`.
+- [x] Despacho no bloqueante al backend (`/api/v1/chat`) con animación táctica `SCANNING` → `GRINNING`.
+
+### ✅ v0.7 — WebSocket Streaming & FreeLLMAPI Gateway (COMPLETADO)
+- [x] Endpoint `@app.websocket("/ws/chat")` para streaming de tokens en tiempo real y eventos de ciberware/skills.
+- [x] Renderizado en vivo token-a-token en el HUD Web (`index.html`) con reconexión automática y fallback REST.
+- [x] Integración de **FreeLLMAPI** como gateway multi-modelo local/remoto con auto-failover (7.4B tokens/mes, 34 modelos).
+- [x] Shimeji de escritorio conectado a WebSocket: streaming token-a-token en directo en el `CyberSpeechBubble` con fallback automático a REST.
+
 ### ✅ v0.8 — Empaquetado y Lanzador Unificado (COMPLETADO)
 - [x] Script `run.sh` unificado: arranca el backend FastAPI en segundo plano si no está activo, lanza el Shimeji gráfico y limpia los procesos al cerrar.
 - [x] Acceso directo `.desktop` (`capri.desktop`) para lanzar C.A.P.R.I. desde el dock o menú de aplicaciones de Ubuntu GNOME.
-
-### 🔴 v0.7 — WebSocket Streaming
-- [ ] Endpoint `@app.websocket("/ws/chat")` para streaming de tokens en tiempo real.
-- [ ] Efecto máquina de escribir en el HUD (respuesta carácter a carácter).
-- [ ] Animación `mouth.png` de Capri sincronizada con el streaming de la respuesta.
-
-### 🔴 v0.8 — Empaquetado Nativo
-- [ ] `.desktop` launcher para Ubuntu (lanzar todo con un icono en el dock).
-- [ ] Script de instalación único `install.sh`.
 
 ---
 

@@ -486,9 +486,30 @@ class CapriShimeji(QWidget):
         self.console.setFocus()
         self._transition("IDLE", timer=999)  # Pausar patrulla mientras escribe
 
+    def _update_bubble_streaming(self, text: str):
+        """Actualiza el texto del bocadillo interactivo en tiempo real durante streaming."""
+        if self.speech_bubble is None:
+            self.speech_bubble = CyberSpeechBubble()
+        if not self.speech_bubble.isVisible():
+            self.speech_bubble.show_message(
+                text=text,
+                pos_x=self.pos_x,
+                pos_y=self.pos_y,
+                capri_w=self.win_w,
+                capri_h=self.win_h,
+                screen_w=self.screen_width,
+                screen_h=self.screen_height,
+                title="✦ C.A.P.R.I. // TRANSMITIENDO..."
+            )
+        else:
+            self.speech_bubble.text_browser.setPlainText(text)
+            sb = self.speech_bubble.text_browser.verticalScrollBar()
+            if sb:
+                sb.setValue(sb.maximum())
+
     def send_directive(self, text: str):
-        """Envía la orden ingresada al endpoint /api/v1/chat del backend."""
-        self.show_dialog("Procesando...", duration=999)
+        """Envía la orden vía WebSocket (/ws/chat) con streaming, con fallback a REST (/api/v1/chat)."""
+        self.show_dialog("Iniciando enlace...", duration=999)
         self._transition("SCANNING", timer=999)
 
         # Ocultar bocadillo anterior si estaba visible
@@ -496,6 +517,62 @@ class CapriShimeji(QWidget):
             self.speech_bubble.hide()
 
         def _worker():
+            # 1. Intentar streaming vía WebSocket
+            try:
+                from websockets.sync.client import connect as ws_connect
+                full_text = ""
+                with ws_connect("ws://127.0.0.1:8000/ws/chat", open_timeout=3.0) as ws:
+                    ws.send(json.dumps({
+                        "session_id": "desktop_shimeji_session",
+                        "message": text
+                    }))
+                    while True:
+                        raw = ws.recv()
+                        event = json.loads(raw)
+                        evt_type = event.get("type")
+
+                        if evt_type == "status":
+                            stage_msg = event.get("message", event.get("stage", ""))
+                            QTimer.singleShot(0, lambda m=stage_msg: self.show_dialog(m[:60], duration=200))
+                        elif evt_type == "skill_call":
+                            sk = event.get("skill", "?")
+                            QTimer.singleShot(0, lambda s=sk: self.show_dialog(f"⚡ {s}...", duration=200))
+                        elif evt_type == "token":
+                            full_text += event.get("delta", "")
+                            current_acc = full_text
+                            QTimer.singleShot(0, lambda t=current_acc: self._update_bubble_streaming(t))
+                        elif evt_type == "done":
+                            final_resp = event.get("full_response", full_text).strip()
+                            clean = final_resp.replace("**", "").replace("*", "").strip()
+                            if not clean:
+                                clean = "Directiva ejecutada."
+                            first_line = [l.strip() for l in clean.split("\n") if l.strip()]
+                            brief = first_line[0][:72] + "…" if first_line and len(first_line[0]) > 72 else (first_line[0] if first_line else "OK")
+
+                            def _done_ui():
+                                self.show_dialog(brief, duration=280)
+                                self._transition("GRINNING")
+                                if self.speech_bubble:
+                                    self.speech_bubble.title_label.setText("✦ C.A.P.R.I. // RESPUESTA")
+                                if len(clean) > 60 or "\n" in clean:
+                                    if self.speech_bubble is None:
+                                        self.speech_bubble = CyberSpeechBubble()
+                                    self.speech_bubble.show_message(
+                                        text=clean,
+                                        pos_x=self.pos_x,
+                                        pos_y=self.pos_y,
+                                        capri_w=self.win_w,
+                                        capri_h=self.win_h,
+                                        screen_w=self.screen_width,
+                                        screen_h=self.screen_height,
+                                    )
+                            QTimer.singleShot(0, _done_ui)
+                            return
+            except Exception:
+                # Fallback a REST si WebSocket no está disponible o falla
+                pass
+
+            # 2. Fallback REST
             try:
                 payload = json.dumps({
                     "session_id": "desktop_shimeji_session",
@@ -544,7 +621,6 @@ class CapriShimeji(QWidget):
                     QTimer.singleShot(0, _success_ui)
 
             except Exception as exc:
-                err_msg = str(exc)
                 def _fail_ui():
                     self.show_dialog("Error: Backend offline", duration=200)
                     self._transition("IDLE")

@@ -173,3 +173,21 @@ def test_shimeji_speech_bubble_instantiated(qapp):
     s.close()
     assert not s.is_running
 
+
+def test_shimeji_streaming_bubble_update(qapp):
+    from src.desktop.shimeji import CapriShimeji
+
+    s = CapriShimeji()
+    # Actualización progresiva en tiempo real
+    s._update_bubble_streaming("Conectando con el ICE...")
+    assert s.speech_bubble is not None
+    assert s.speech_bubble.isVisible()
+    assert s.speech_bubble.text_browser.toPlainText() == "Conectando con el ICE..."
+
+    # Siguiente token acumulado
+    s._update_bubble_streaming("Conectando con el ICE... Enlace completado, choomba.")
+    assert s.speech_bubble.text_browser.toPlainText() == "Conectando con el ICE... Enlace completado, choomba."
+    s.speech_bubble.close()
+    s.close()
+
+
